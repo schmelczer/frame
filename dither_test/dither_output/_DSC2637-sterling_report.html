@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dithering Comparison: _DSC2637-sterling</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: #00d9ff; margin-bottom: 10px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: #16213e;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .card img {
+            width: 100%;
+            height: auto;
+            display: block;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .card img:hover { transform: scale(1.02); }
+        .card-info {
+            padding: 15px;
+        }
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #00d9ff;
+            margin-bottom: 5px;
+        }
+        .card-desc {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .card-time {
+            font-size: 12px;
+            color: #666;
+        }
+        .source-card {
+            grid-column: 1 / -1;
+            max-width: 850px;
+        }
+        .source-card img { max-width: 800px; }
+        .palette {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            padding: 15px;
+            background: #16213e;
+            border-radius: 8px;
+            width: fit-content;
+        }
+        .color-swatch {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            border: 2px solid #333;
+        }
+        .fullscreen {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .fullscreen img {
+            max-width: 95%;
+            max-height: 95%;
+        }
+        .fullscreen.active { display: flex; }
+    </style>
+</head>
+<body>
+    <h1>Dithering Algorithm Comparison</h1>
+    <p class="subtitle">Source: /volumes/syncthing/Projects/frame/src/_DSC2637-sterling.jpg</p>
+
+    <h3>6-Color Palette</h3>
+    <div class="palette">
+        <div class="color-swatch" style="background: rgb(0,0,0);" title="Black"></div>
+        <div class="color-swatch" style="background: rgb(255,255,255);" title="White"></div>
+        <div class="color-swatch" style="background: rgb(255,255,0);" title="Yellow"></div>
+        <div class="color-swatch" style="background: rgb(255,0,0);" title="Red"></div>
+        <div class="color-swatch" style="background: rgb(0,0,255);" title="Blue"></div>
+        <div class="color-swatch" style="background: rgb(0,255,0);" title="Green"></div>
+    </div>
+
+    <h3>Results</h3>
+    <div class="grid">
+        <div class="card source-card">
+            <img src="_DSC2637-sterling_source.png" alt="Prepared Source" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Original (Prepared)</div>
+                <div class="card-desc">Source image resized to 800x480 with LANCZOS resampling</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_none.png" alt="No Dithering (PIL)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">No Dithering (PIL)</div>
+                <div class="card-desc">Simple nearest-color quantization without error diffusion</div>
+                <div class="card-time">Processing time: 0.00s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_pil_fs.png" alt="Floyd-Steinberg (PIL)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Floyd-Steinberg (PIL)</div>
+                <div class="card-desc">PIL built-in Floyd-Steinberg implementation</div>
+                <div class="card-time">Processing time: 0.01s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_floyd_steinberg.png" alt="Floyd-Steinberg" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Floyd-Steinberg</div>
+                <div class="card-desc">Classic error diffusion (1976), good balance of speed and quality</div>
+                <div class="card-time">Processing time: 3.58s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_floyd_steinberg_weighted.png" alt="Floyd-Steinberg (Weighted)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Floyd-Steinberg (Weighted)</div>
+                <div class="card-desc">Floyd-Steinberg with perceptual color weighting</div>
+                <div class="card-time">Processing time: 3.93s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_atkinson.png" alt="Atkinson" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Atkinson</div>
+                <div class="card-desc">Bill Atkinson (Apple), diffuses only 75% of error for cleaner results</div>
+                <div class="card-time">Processing time: 3.57s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_atkinson_weighted.png" alt="Atkinson (Weighted)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Atkinson (Weighted)</div>
+                <div class="card-desc">Atkinson with perceptual color weighting</div>
+                <div class="card-time">Processing time: 3.89s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_jarvis.png" alt="Jarvis-Judice-Ninke" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Jarvis-Judice-Ninke</div>
+                <div class="card-desc">Larger diffusion kernel (1976), smoother gradients but slower</div>
+                <div class="card-time">Processing time: 7.85s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_stucki.png" alt="Stucki" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Stucki</div>
+                <div class="card-desc">Similar to JJN with modified weights (1981)</div>
+                <div class="card-time">Processing time: 7.83s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_sierra.png" alt="Sierra" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Sierra</div>
+                <div class="card-desc">Full Sierra dithering, balanced results</div>
+                <div class="card-time">Processing time: 6.75s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_sierra_lite.png" alt="Sierra Lite" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Sierra Lite</div>
+                <div class="card-desc">Faster Sierra variant with smaller kernel</div>
+                <div class="card-time">Processing time: 3.03s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_burkes.png" alt="Burkes" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Burkes</div>
+                <div class="card-desc">Simplified two-row error diffusion</div>
+                <div class="card-time">Processing time: 5.21s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_bayer2.png" alt="Ordered (Bayer 2x2)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Ordered (Bayer 2x2)</div>
+                <div class="card-desc">Ordered dithering with 2x2 Bayer matrix</div>
+                <div class="card-time">Processing time: 2.05s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_bayer4.png" alt="Ordered (Bayer 4x4)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Ordered (Bayer 4x4)</div>
+                <div class="card-desc">Ordered dithering with 4x4 Bayer matrix</div>
+                <div class="card-time">Processing time: 2.05s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_bayer8.png" alt="Ordered (Bayer 8x8)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Ordered (Bayer 8x8)</div>
+                <div class="card-desc">Ordered dithering with 8x8 Bayer matrix</div>
+                <div class="card-time">Processing time: 2.04s</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <img src="_DSC2637-sterling_bayer4_strong.png" alt="Ordered (Bayer 4x4 Strong)" onclick="showFullscreen(this)">
+            <div class="card-info">
+                <div class="card-title">Ordered (Bayer 4x4 Strong)</div>
+                <div class="card-desc">Bayer 4x4 with increased dithering strength</div>
+                <div class="card-time">Processing time: 2.03s</div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="fullscreen" onclick="hideFullscreen()">
+        <img src="" id="fullscreen-img">
+    </div>
+
+    <script>
+        function showFullscreen(img) {
+            document.getElementById('fullscreen-img').src = img.src;
+            document.querySelector('.fullscreen').classList.add('active');
+        }
+        function hideFullscreen() {
+            document.querySelector('.fullscreen').classList.remove('active');
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') hideFullscreen();
+        });
+    </script>
+</body>
+</html>
