@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).parent / "lib"))
 from immich import ImmichClient, get_random_photo_of_people, get_random_photo_from_album
 from homeassistant import HomeAssistantClient
 from overlay import format_age, format_location
+from crop import face_aware_crop
 # waveshare_epd is imported lazily after the lock — its epdconfig claims
 # GPIO pins at import time, so two overlapping invocations would both crash
 # on "GPIO busy" before reaching the flock below.
@@ -21,7 +22,7 @@ IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "REDACTED_IMMICH_API_KEY")
 
 HA_URL = os.environ.get("HA_URL", "https://homeassistant.example.com")
 HA_TOKEN = os.environ.get("HA_TOKEN", "REDACTED_HA_TOKEN")
-HA_PRESENCE_ENTITIES = ["person.andras", "person.ruby"]
+HA_PRESENCE = {"Andras": "person.andras", "Ruby": "person.ruby"}
 
 
 def main() -> None:
@@ -47,12 +48,12 @@ def main() -> None:
 
     now = datetime.now()
     print(f"Time: {now.strftime('%H:%M')}")
-    if 0 <= now.hour < 7:
+    if now.hour < 7:
         print("Night time, skipping")
         sys.exit(0)
 
     ha = HomeAssistantClient(HA_URL, HA_TOKEN)
-    home = [e.split(".")[-1].title() for e in HA_PRESENCE_ENTITIES if ha.is_person_home(e)]
+    home = [name for name, eid in HA_PRESENCE.items() if ha.is_person_home(eid)]
     if not home:
         print("No one home, skipping")
         sys.exit(0)
@@ -77,6 +78,10 @@ def main() -> None:
         try:
             epd.init()
             img = Image.open(image_path).convert("RGB")
+            faces = client.get_asset_faces(asset["id"])
+            print(f"Faces: {len(faces)}")
+            target_w, target_h = (480, 800) if args.orientation in (90, 270) else (800, 480)
+            img = face_aware_crop(img, target_w, target_h, faces)
             if args.orientation:
                 img = img.rotate(args.orientation, expand=True)
             buf = epd.getbuffer(img, saturation=args.saturation, contrast=args.contrast,

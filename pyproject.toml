@@ -1,0 +1,21 @@
+[project]
+name = "frame"
+version = "0.1.0"
+description = "E-ink photo frame for Raspberry Pi Zero 2W"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "numpy>=1.26",
+    "pillow>=10",
+    "opencv-python>=4.8",
+    "numba>=0.60",
+]
+
+[dependency-groups]
+notebook = [
+    "matplotlib>=3.8",
+    "jupyterlab>=4.2",
+    "ipykernel>=6.29",
+]
+
+[tool.uv]
+default-groups = ["notebook"]

@@ -52,7 +52,9 @@ def format_age(asset: dict) -> str | None:
     for n, unit in ((365, "year"), (30, "month"), (7, "week")):
         if days >= n:
             count = max(1, days // n)
-            return f"{count} {unit}{'s' if count > 1 else ''} ago"
+            if count == 1:
+                return f"Last {unit}"
+            return f"{count} {unit}s ago"
 
 
 def format_location(asset: dict) -> str | None:

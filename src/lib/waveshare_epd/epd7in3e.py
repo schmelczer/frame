@@ -159,23 +159,20 @@ class EPD:
         epdconfig.digital_write(self.reset_pin, 1)
         epdconfig.delay_ms(20)
 
-    def send_command(self, command):
-        epdconfig.digital_write(self.dc_pin, 0)
+    def _spi(self, dc: int, payload, batch: bool = False):
+        epdconfig.digital_write(self.dc_pin, dc)
         epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte([command])
+        (epdconfig.spi_writebyte2 if batch else epdconfig.spi_writebyte)(payload)
         epdconfig.digital_write(self.cs_pin, 1)
+
+    def send_command(self, command):
+        self._spi(0, [command])
 
     def send_data(self, data):
-        epdconfig.digital_write(self.dc_pin, 1)
-        epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte([data])
-        epdconfig.digital_write(self.cs_pin, 1)
+        self._spi(1, [data])
 
     def send_data2(self, data):
-        epdconfig.digital_write(self.dc_pin, 1)
-        epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte2(data)
-        epdconfig.digital_write(self.cs_pin, 1)
+        self._spi(1, data, batch=True)
 
     def wait_busy(self):
         while epdconfig.digital_read(self.busy_pin) == 0:

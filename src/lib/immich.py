@@ -16,11 +16,11 @@ CACHE_DIR = Path(tempfile.gettempdir()) / "frame_cache"
 
 def _cache_get(key: str) -> list[dict] | None:
     path = CACHE_DIR / f"{key}.json"
-    if not path.exists() or time.time() - path.stat().st_mtime > 3600:
-        return None
     try:
+        if time.time() - path.stat().st_mtime > 3600:
+            return None
         return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
 
 
@@ -29,45 +29,26 @@ def _cache_set(key: str, value: list[dict]) -> None:
     (CACHE_DIR / f"{key}.json").write_text(json.dumps(value))
 
 
-class PhotoHistory:
-    """Track displayed photos to avoid repeats. Clears after 7 days."""
+def _load_history() -> tuple[set[str], datetime]:
+    """Load (displayed, created_at). Resets if missing/corrupt or older than 7 days."""
+    try:
+        data = json.loads(HISTORY_FILE.read_text())
+        created_at = datetime.fromisoformat(data["created_at"])
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - created_at <= timedelta(days=7):
+            return set(data.get("displayed", [])), created_at
+        print("Photo history expired (>7 days), clearing...")
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, KeyError):
+        pass
+    return set(), datetime.now(timezone.utc)
 
-    def __init__(self, path: Path = HISTORY_FILE):
-        self.path = path
-        self.displayed: set[str] = set()
-        self.created_at = datetime.now(timezone.utc)
-        self._load()
 
-    def _load(self) -> None:
-        if not self.path.exists():
-            self._save()
-            return
-        try:
-            data = json.loads(self.path.read_text())
-            self.created_at = datetime.fromisoformat(data["created_at"])
-            if self.created_at.tzinfo is None:
-                self.created_at = self.created_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - self.created_at > timedelta(days=7):
-                print("Photo history expired (>7 days), clearing...")
-                self.created_at = datetime.now(timezone.utc)
-                self._save()
-            else:
-                self.displayed = set(data.get("displayed", []))
-        except (json.JSONDecodeError, ValueError, KeyError):
-            self._save()
-
-    def _save(self) -> None:
-        self.path.write_text(json.dumps({
-            "created_at": self.created_at.isoformat(),
-            "displayed": list(self.displayed),
-        }, indent=2))
-
-    def mark_displayed(self, asset_id: str) -> None:
-        self.displayed.add(asset_id)
-        self._save()
-
-    def filter_new(self, assets: list[dict]) -> list[dict]:
-        return [a for a in assets if a.get("id") not in self.displayed]
+def _save_history(displayed: set[str], created_at: datetime) -> None:
+    HISTORY_FILE.write_text(json.dumps({
+        "created_at": created_at.isoformat(),
+        "displayed": sorted(displayed),
+    }, indent=2))
 
 
 @dataclass
@@ -79,14 +60,13 @@ class ImmichClient:
         self.base_url = self.base_url.rstrip("/")
 
     def _request(self, method: str, endpoint: str, data: dict | None = None) -> dict:
-        url = f"{self.base_url}/api/{endpoint.lstrip('/')}"
         headers = {"x-api-key": self.api_key}
         body = None
         if data is not None:
             headers["Content-Type"] = "application/json"
             body = json.dumps(data).encode()
 
-        req = Request(url, data=body, headers=headers, method=method)
+        req = Request(f"{self.base_url}/api{endpoint}", data=body, headers=headers, method=method)
         with urlopen_with_retry(req, timeout=30) as resp:
             return json.loads(resp.read().decode())
 
@@ -105,16 +85,15 @@ class ImmichClient:
         items = []
         page = 1
         while True:
-            result = self._request("POST", "/search/metadata", {
+            assets = self._request("POST", "/search/metadata", {
                 "personIds": person_ids,
                 "size": 250,
                 "page": page,
                 "type": "IMAGE",
                 "withExif": True,
-            })
-            batch = result.get("assets", {}).get("items", [])
-            items.extend(batch)
-            if not batch or not result.get("assets", {}).get("nextPage"):
+            }).get("assets", {})
+            items.extend(assets.get("items", []))
+            if not assets.get("nextPage"):
                 break
             page += 1
         _cache_set(key, items)
@@ -126,6 +105,19 @@ class ImmichClient:
         with urlopen_with_retry(req, timeout=30) as resp:
             dest.write_bytes(resp.read())
         return dest
+
+    def get_asset_faces(self, asset_id: str) -> list[dict]:
+        """Face boxes for people assigned on this asset.
+
+        Each face has imageWidth, imageHeight, boundingBoxX1/Y1/X2/Y2.
+        Unassigned faces are skipped — they're often false positives (posters,
+        reflections) and shouldn't drag the crop off the real subjects.
+        """
+        asset = self._request("GET", f"/assets/{asset_id}")
+        faces = []
+        for person in asset.get("people") or []:
+            faces.extend(person.get("faces") or [])
+        return faces
 
     def get_album_id(self, name: str) -> str | None:
         for album in self._request("GET", "/albums"):
@@ -159,8 +151,35 @@ def _filter_by_orientation(assets: list[dict], portrait: bool) -> list[dict]:
     return out
 
 
+def _on_this_day_candidates(assets: list[dict]) -> list[dict]:
+    """Photos taken on today's month-day in past years, with a ±3-day fallback."""
+    today = datetime.now(timezone.utc).date()
+    dated = []
+    for a in assets:
+        exif = a.get("exifInfo") or {}
+        date_str = exif.get("dateTimeOriginal") or a.get("fileCreatedAt")
+        if not date_str:
+            continue
+        try:
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
+        except (ValueError, AttributeError):
+            continue
+        if dt.year < today.year:
+            dated.append((a, dt))
+
+    exact = [a for a, dt in dated if (dt.month, dt.day) == (today.month, today.day)]
+    if exact:
+        return exact
+
+    nearby_md = set()
+    for offset in range(-3, 4):
+        d = today + timedelta(days=offset)
+        nearby_md.add((d.month, d.day))
+    return [a for a, dt in dated if (dt.month, dt.day) in nearby_md]
+
+
 def _pick_weighted_random(assets: list[dict]) -> dict:
-    """Pick random asset, biased towards favorites and recently added photos."""
+    """Pick random asset, biased towards on-this-day memories, favorites, and recents."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     favorites = [a for a in assets if a.get("isFavorite")]
     recent = []
@@ -170,10 +189,18 @@ def _pick_weighted_random(assets: list[dict]) -> dict:
                 recent.append(a)
         except (ValueError, AttributeError):
             pass
+    on_this_day = _on_this_day_candidates(assets)
 
-    candidates = [(favorites, 0.2), (recent, 0.4), (assets, 0.4)]
-    pools, weights = zip(*[(p, w) for p, w in candidates if p])
-    pool = random.choices(pools, weights=weights)[0]
+    candidates = [
+        ("on this day", on_this_day, 0.10),
+        ("favorites", favorites, 0.18),
+        ("recent", recent, 0.36),
+        ("all", assets, 0.36),
+    ]
+    active = [(label, pool, w) for label, pool, w in candidates if pool]
+    print("Pool sizes: " + ", ".join(f"{label}={len(pool)}" for label, pool, _ in active))
+    label, pool, _ = random.choices(active, weights=[w for _, _, w in active])[0]
+    print(f"Picked pool: {label} ({len(pool)} candidates)")
     return random.choice(pool)
 
 
@@ -184,8 +211,8 @@ def _pick_and_download(client: ImmichClient, assets: list[dict],
     if not filtered:
         raise ValueError(f"No {'portrait' if portrait else 'landscape'} photos in {source_label}")
 
-    history = PhotoHistory()
-    candidates = history.filter_new(filtered)
+    displayed, created_at = _load_history()
+    candidates = [a for a in filtered if a.get("id") not in displayed]
     if not candidates:
         print(f"All {len(filtered)} photos shown, picking from full list")
         candidates = filtered
@@ -195,7 +222,8 @@ def _pick_and_download(client: ImmichClient, assets: list[dict],
     asset = _pick_weighted_random(candidates)
     dest = Path(tempfile.gettempdir()) / "immich_photo.jpg"
     path = client.download_asset(asset["id"], dest)
-    history.mark_displayed(asset["id"])
+    displayed.add(asset["id"])
+    _save_history(displayed, created_at)
     return path, asset
 
 

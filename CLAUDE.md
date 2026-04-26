@@ -30,7 +30,7 @@ python3 display.py --saturation 1.5 --contrast 1.1 --gamma 0.85
 4. Sends to e-ink display driver
 
 **`src/lib/immich.py`** — Immich API client. Key behaviors:
-- `PhotoHistory` tracks displayed photos in `photo_history.json` to avoid repeats (resets after 7 days). Asset is only marked displayed after a successful download.
+- `_load_history()` / `_save_history()` track displayed photos in `photo_history.json` to avoid repeats (resets after 7 days). Asset is only marked displayed after a successful download.
 - `_pick_weighted_random()` biases selection: 20% favorites, 50% recently-added (last 30 days, by Immich `createdAt`), otherwise uniform random
 - Filters photos by orientation (portrait/landscape) based on EXIF data including rotation tags. Raises if nothing matches the requested orientation.
 - Downloads preview-size thumbnails, not originals
@@ -48,6 +48,13 @@ python3 display.py --saturation 1.5 --contrast 1.1 --gamma 0.85
 **`src/lib/waveshare_epd/epdconfig.py`** — GPIO/SPI hardware config. **Critical: PWR pin is BCM 27** (not default 18).
 
 **`src/lib/progress.py`** — Simple terminal progress bar.
+
+**`notebooks/`** — Off-Pi observable comparisons covering pipeline stages. Run via the
+uv-managed env (`uv run jupyter lab notebooks/...`). The notebooks share `_helpers.py`
+(bootstrap, Immich client, pool fetch, image cache) and `_dither.py` (migrated from the
+former `dither_test/`):
+- `crop_compare.ipynb` — face-aware crop vs. centre crop on the most-divergent picks
+- `dither_compare.ipynb` — error-diffusion + ordered dithering algorithms with timing
 
 ## Key Constraints
 
