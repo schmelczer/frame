@@ -47,8 +47,3 @@ class ProgressBar:
         """Complete the progress bar."""
         self.current = self.total
         self._render()
-
-
-def print_status(msg: str) -> None:
-    """Print a status message."""
-    print(f"  {msg}")

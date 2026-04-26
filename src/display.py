@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
 import os
 import sys
 from datetime import datetime
@@ -11,6 +12,8 @@ sys.path.append(str(Path(__file__).parent / "lib"))
 from waveshare_epd import epd7in3e
 from immich import ImmichClient, get_random_photo_of_people, get_random_photo_from_album
 from homeassistant import HomeAssistantClient
+
+LOCK_FILE = "/tmp/frame.lock"
 
 IMMICH_URL = os.environ.get("IMMICH_URL", "https://immich.example.com")
 IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "REDACTED_IMMICH_API_KEY")
@@ -50,6 +53,13 @@ def main() -> None:
     parser.add_argument("--gamma", type=float, default=DEFAULT_GAMMA)
     parser.add_argument("--no-enhance", action="store_true")
     args = parser.parse_args()
+
+    lock_fd = open(LOCK_FILE, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("Another instance running, skipping")
+        sys.exit(0)
 
     now = datetime.now()
     print(f"Time: {now.strftime('%H:%M')}")

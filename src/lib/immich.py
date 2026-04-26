@@ -1,16 +1,54 @@
 #!/usr/bin/env python3
+import hashlib
 import json
 import random
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from progress import ProgressBar
 
 HISTORY_FILE = Path(__file__).parent.parent / "photo_history.json"
 HISTORY_MAX_AGE_DAYS = 7
+
+CACHE_DIR = Path(tempfile.gettempdir()) / "frame_cache"
+CACHE_TTL_SECONDS = 3600
+
+RETRY_DELAYS = (3, 10)
+
+
+def _urlopen_with_retry(req: Request, timeout: int = 30):
+    """urlopen wrapper that retries transient network failures."""
+    last_err: Exception | None = None
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        try:
+            return urlopen(req, timeout=timeout)
+        except (URLError, TimeoutError) as e:
+            last_err = e
+            if attempt < len(RETRY_DELAYS):
+                time.sleep(RETRY_DELAYS[attempt])
+    raise last_err
+
+
+def _cache_get(key: str) -> list[dict] | None:
+    path = CACHE_DIR / f"{key}.json"
+    if not path.exists():
+        return None
+    if time.time() - path.stat().st_mtime > CACHE_TTL_SECONDS:
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _cache_set(key: str, value: list[dict]) -> None:
+    CACHE_DIR.mkdir(exist_ok=True)
+    (CACHE_DIR / f"{key}.json").write_text(json.dumps(value))
 
 
 class PhotoHistory:
@@ -59,7 +97,6 @@ class PhotoHistory:
 
 
 _history: PhotoHistory | None = None
-_people_cache: dict[str, str] = {}  # name -> id cache
 
 
 def get_history() -> PhotoHistory:
@@ -84,7 +121,7 @@ class ImmichClient:
             body = json.dumps(data).encode()
 
         req = Request(url, data=body, headers=headers, method=method)
-        with urlopen(req, timeout=30) as resp:
+        with _urlopen_with_retry(req, timeout=30) as resp:
             total_size = resp.headers.get('Content-Length')
             if total_size and show_progress:
                 total_size = int(total_size)
@@ -107,6 +144,11 @@ class ImmichClient:
         return None
 
     def search_assets_by_people(self, person_ids: list[str]) -> list[dict]:
+        key = "people_" + hashlib.md5("_".join(sorted(person_ids)).encode()).hexdigest()
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
+
         items = []
         page = 1
         while True:
@@ -122,12 +164,13 @@ class ImmichClient:
             if not batch or not result.get("assets", {}).get("nextPage"):
                 break
             page += 1
+        _cache_set(key, items)
         return items
 
     def download_asset(self, asset_id: str, dest: Path, show_progress: bool = True) -> Path:
         url = f"{self.base_url.rstrip('/')}/api/assets/{asset_id}/thumbnail?size=preview"
         req = Request(url, headers={"x-api-key": self.api_key})
-        with urlopen(req, timeout=30) as resp:
+        with _urlopen_with_retry(req, timeout=30) as resp:
             total_size = resp.headers.get('Content-Length')
             if total_size and show_progress:
                 total_size = int(total_size)
@@ -149,9 +192,16 @@ class ImmichClient:
         return None
 
     def get_album_assets(self, album_id: str, show_progress: bool = False) -> list[dict]:
+        key = f"album_{album_id}"
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
+
         album = self._request("GET", f"/albums/{album_id}",
                               show_progress=show_progress, progress_desc="Fetching album")
-        return album.get("assets", [])
+        assets = album.get("assets", [])
+        _cache_set(key, assets)
+        return assets
 
 
 def _is_portrait(asset: dict) -> bool | None:
@@ -218,9 +268,10 @@ def _download_random_asset(client: ImmichClient, assets: list[dict]) -> Path:
         print(f"All {len(assets)} photos shown, picking from full list")
         asset = _pick_weighted_random(assets)
 
-    history.mark_displayed(asset["id"])
     dest = Path(tempfile.gettempdir()) / "immich_photo.jpg"
-    return client.download_asset(asset["id"], dest)
+    path = client.download_asset(asset["id"], dest)
+    history.mark_displayed(asset["id"])
+    return path
 
 
 def get_random_photo_of_people(client: ImmichClient, names: list[str], orientation: int = 0) -> Path:
@@ -235,11 +286,9 @@ def get_random_photo_of_people(client: ImmichClient, names: list[str], orientati
 
     portrait = orientation in (90, 270)
     filtered = _filter_by_orientation(assets, portrait)
-    if filtered:
-        assets = filtered
-    else:
-        print(f"No {'portrait' if portrait else 'landscape'} photos, using any orientation")
-    return _download_random_asset(client, assets)
+    if not filtered:
+        raise ValueError(f"No {'portrait' if portrait else 'landscape'} photos available")
+    return _download_random_asset(client, filtered)
 
 
 def get_random_photo_from_album(client: ImmichClient, album_name: str, orientation: int = 0) -> Path:
@@ -253,8 +302,6 @@ def get_random_photo_from_album(client: ImmichClient, album_name: str, orientati
 
     portrait = orientation in (90, 270)
     filtered = _filter_by_orientation(assets, portrait)
-    if filtered:
-        assets = filtered
-    else:
-        print(f"No {'portrait' if portrait else 'landscape'} photos, using any orientation")
-    return _download_random_asset(client, assets)
+    if not filtered:
+        raise ValueError(f"No {'portrait' if portrait else 'landscape'} photos in album: {album_name}")
+    return _download_random_asset(client, filtered)

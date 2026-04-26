@@ -2,38 +2,33 @@
 # Waveshare 7.3" 6-color e-Paper driver (modified)
 # Original: Waveshare team, 2022-10-20
 
-import sys
 import numpy as np
 import cv2
 from PIL import Image, ImageEnhance
 from numba import jit
+from progress import ProgressBar
 from . import epdconfig
 
 EPD_WIDTH = 800
 EPD_HEIGHT = 480
 
-DEFAULT_SATURATION = 1.4
-DEFAULT_CONTRAST = 1.2
-DEFAULT_GAMMA = 0.9
-
+# 6-color e-ink encoding: indices 0,1,2,3,5,6 are wire-format colors;
+# 4 is reserved/unused (filled with BLACK so nearest-color never picks it).
 PALETTE_RGB = np.array([
-    [0, 0, 0],        # BLACK
-    [255, 255, 255],  # WHITE
-    [255, 255, 0],    # YELLOW
-    [255, 0, 0],      # RED
-    [0, 0, 255],      # BLUE
-    [0, 255, 0],      # GREEN
+    [0, 0, 0],        # 0: BLACK
+    [255, 255, 255],  # 1: WHITE
+    [255, 255, 0],    # 2: YELLOW
+    [255, 0, 0],      # 3: RED
+    [0, 0, 0],        # 4: unused
+    [0, 0, 255],      # 5: BLUE
+    [0, 255, 0],      # 6: GREEN
 ], dtype=np.float64)
 
 PERCEPTUAL_WEIGHTS = np.array([0.299, 0.587, 0.114], dtype=np.float64)
 
 
-def _enhance_for_eink(image: Image.Image, saturation: float = None,
-                      contrast: float = None, gamma: float = None) -> Image.Image:
-    saturation = saturation or DEFAULT_SATURATION
-    contrast = contrast or DEFAULT_CONTRAST
-    gamma = gamma or DEFAULT_GAMMA
-
+def _enhance_for_eink(image: Image.Image, saturation: float,
+                      contrast: float, gamma: float) -> Image.Image:
     img = image.convert('RGB')
     if saturation != 1.0:
         img = ImageEnhance.Color(img).enhance(saturation)
@@ -66,18 +61,6 @@ def _crop_center(image: Image.Image, target_w: int, target_h: int,
     return Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
 
 
-def _render_progress(desc: str, current: int, total: int, width: int = 30) -> None:
-    if total == 0:
-        return
-    percent = int(100 * current / total)
-    filled = int(width * current / total)
-    bar = "█" * filled + "░" * (width - filled)
-    sys.stdout.write(f"\r{desc}: |{bar}| {percent:3d}%")
-    sys.stdout.flush()
-    if current >= total:
-        print()
-
-
 @jit(nopython=True, cache=True)
 def _find_nearest_color(r, g, b, palette, weights):
     best_idx, best_dist = 0, 1e10
@@ -92,14 +75,14 @@ def _find_nearest_color(r, g, b, palette, weights):
 
 
 @jit(nopython=True, cache=True)
-def _atkinson_dither_rows(img, palette, weights, start_row, end_row):
+def _atkinson_dither_rows(img, palette, weights, indices, start_row, end_row):
     height, width = img.shape[:2]
     for y in range(start_row, end_row):
         for x in range(width):
             old_r, old_g, old_b = img[y, x, 0], img[y, x, 1], img[y, x, 2]
             idx = _find_nearest_color(old_r, old_g, old_b, palette, weights)
+            indices[y, x] = idx
             new_r, new_g, new_b = palette[idx, 0], palette[idx, 1], palette[idx, 2]
-            img[y, x, 0], img[y, x, 1], img[y, x, 2] = new_r, new_g, new_b
 
             err_r, err_g, err_b = (old_r - new_r) / 8.0, (old_g - new_g) / 8.0, (old_b - new_b) / 8.0
 
@@ -127,23 +110,25 @@ def _atkinson_dither_rows(img, palette, weights, start_row, end_row):
                 img[y + 2, x, 0] += err_r
                 img[y + 2, x, 1] += err_g
                 img[y + 2, x, 2] += err_b
-    return img
 
 
-def _dither_atkinson(image: Image.Image, show_progress: bool = True) -> Image.Image:
+def _dither_atkinson(image: Image.Image, show_progress: bool = True) -> np.ndarray:
+    """Atkinson-dither to the e-ink palette and return a uint8 array of palette indices."""
     img = np.array(image.convert('RGB'), dtype=np.float64)
-    height = img.shape[0]
+    height, width = img.shape[:2]
+    indices = np.zeros((height, width), dtype=np.uint8)
     if show_progress:
         print("Dithering...")
+        progress = ProgressBar(height, desc="Dithering")
 
     chunk_size = 48
     for i in range((height + chunk_size - 1) // chunk_size):
         start, end = i * chunk_size, min((i + 1) * chunk_size, height)
-        img = _atkinson_dither_rows(img, PALETTE_RGB, PERCEPTUAL_WEIGHTS, start, end)
+        _atkinson_dither_rows(img, PALETTE_RGB, PERCEPTUAL_WEIGHTS, indices, start, end)
         if show_progress:
-            _render_progress("Dithering", end, height)
+            progress.set(end)
 
-    return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), 'RGB')
+    return indices
 
 
 class EPD:
@@ -253,11 +238,8 @@ class EPD:
         self.wait_busy()
         return 0
 
-    def getbuffer(self, image, saturation=None, contrast=None, gamma=None,
-                  enhance=True, show_progress=True):
-        pal_image = Image.new("P", (1, 1))
-        pal_image.putpalette((0,0,0, 255,255,255, 255,255,0, 255,0,0, 0,0,0, 0,0,255, 0,255,0) + (0,0,0)*249)
-
+    def getbuffer(self, image, saturation: float, contrast: float, gamma: float,
+                  enhance: bool = True, show_progress: bool = True):
         image = image.convert('RGB')
         imwidth, imheight = image.size
 
@@ -271,16 +253,13 @@ class EPD:
                 print("Enhancing...")
             image = _enhance_for_eink(image, saturation, contrast, gamma)
 
-        image = _dither_atkinson(image, show_progress)
+        indices = _dither_atkinson(image, show_progress)
 
         if show_progress:
             print("Packing buffer...")
-        image_6color = image.quantize(palette=pal_image, dither=Image.Dither.NONE)
-        buf_6color = bytearray(image_6color.tobytes('raw'))
-
-        buf = [0x00] * (self.width * self.height // 2)
-        for i in range(0, len(buf_6color), 2):
-            buf[i // 2] = (buf_6color[i] << 4) + buf_6color[i + 1]
+        flat = indices.reshape(-1)
+        packed = (flat[0::2].astype(np.uint8) << 4) | flat[1::2].astype(np.uint8)
+        buf = packed.tolist()
 
         if show_progress:
             print("Ready")
