@@ -185,24 +185,24 @@ def _filter_by_orientation(assets: list[dict], portrait: bool) -> list[dict]:
 
 
 def _pick_weighted_random(assets: list[dict]) -> dict:
-    """Pick random asset, slightly biased towards favorites (20%) and recent photos (20%)."""
+    """Pick random asset, biased towards favorites (20%) and recently added photos (50%)."""
     if not assets:
         raise ValueError("No assets to choose from")
 
-    one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     favorites = [a for a in assets if a.get("isFavorite")]
     recent = []
     for asset in assets:
-        date_str = asset.get("fileCreatedAt") or asset.get("createdAt", "")
+        date_str = asset.get("createdAt", "")
         try:
-            if datetime.fromisoformat(date_str.replace("Z", "+00:00")) >= one_week_ago:
+            if datetime.fromisoformat(date_str.replace("Z", "+00:00")) >= cutoff:
                 recent.append(asset)
         except (ValueError, AttributeError):
             pass
 
     if favorites and random.random() < 0.2:
         return random.choice(favorites)
-    if recent and random.random() < 0.25:
+    if recent and random.random() < 0.5:
         return random.choice(recent)
     return random.choice(assets)
 
