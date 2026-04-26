@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # Waveshare 7.3" 6-color e-Paper driver (modified)
-# Original: Waveshare team, 2022-10-20
 
 import numpy as np
 import cv2
 from PIL import Image, ImageEnhance
 from numba import jit
 from progress import ProgressBar
+from overlay import render_text_into_indices
 from . import epdconfig
 
 EPD_WIDTH = 800
@@ -26,6 +26,22 @@ PALETTE_RGB = np.array([
 
 PERCEPTUAL_WEIGHTS = np.array([0.299, 0.587, 0.114], dtype=np.float64)
 
+INIT_SEQUENCE = (
+    (0xAA, [0x49, 0x55, 0x20, 0x08, 0x09, 0x18]),
+    (0x01, [0x3F]),
+    (0x00, [0x5F, 0x69]),
+    (0x03, [0x00, 0x54, 0x00, 0x44]),
+    (0x05, [0x40, 0x1F, 0x1F, 0x2C]),
+    (0x06, [0x6F, 0x1F, 0x17, 0x49]),
+    (0x08, [0x6F, 0x1F, 0x1F, 0x22]),
+    (0x30, [0x03]),
+    (0x50, [0x3F]),
+    (0x60, [0x02, 0x00]),
+    (0x61, [0x03, 0x20, 0x01, 0xE0]),
+    (0x84, [0x01]),
+    (0xE3, [0x2F]),
+)
+
 
 def _enhance_for_eink(image: Image.Image, saturation: float,
                       contrast: float, gamma: float) -> Image.Image:
@@ -40,11 +56,8 @@ def _enhance_for_eink(image: Image.Image, saturation: float,
     return img
 
 
-def _crop_center(image: Image.Image, target_w: int, target_h: int,
-                 show_progress: bool = True) -> Image.Image:
-    if show_progress:
-        print("Center cropping...")
-
+def _crop_center(image: Image.Image, target_w: int, target_h: int) -> Image.Image:
+    print("Center cropping...")
     img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     img_h, img_w = img_cv.shape[:2]
     img_aspect, target_aspect = img_w / img_h, target_w / target_h
@@ -112,21 +125,19 @@ def _atkinson_dither_rows(img, palette, weights, indices, start_row, end_row):
                 img[y + 2, x, 2] += err_b
 
 
-def _dither_atkinson(image: Image.Image, show_progress: bool = True) -> np.ndarray:
+def _dither_atkinson(image: Image.Image) -> np.ndarray:
     """Atkinson-dither to the e-ink palette and return a uint8 array of palette indices."""
     img = np.array(image.convert('RGB'), dtype=np.float64)
     height, width = img.shape[:2]
     indices = np.zeros((height, width), dtype=np.uint8)
-    if show_progress:
-        print("Dithering...")
-        progress = ProgressBar(height, desc="Dithering")
+    print("Dithering...")
+    progress = ProgressBar(height, desc="Dithering")
 
     chunk_size = 48
     for i in range((height + chunk_size - 1) // chunk_size):
         start, end = i * chunk_size, min((i + 1) * chunk_size, height)
         _atkinson_dither_rows(img, PALETTE_RGB, PERCEPTUAL_WEIGHTS, indices, start, end)
-        if show_progress:
-            progress.set(end)
+        progress.set(end)
 
     return indices
 
@@ -181,98 +192,43 @@ class EPD:
         self.wait_busy()
 
     def init(self):
-        if epdconfig.module_init() != 0:
-            return -1
+        epdconfig.module_init()
         self.reset()
         self.wait_busy()
         epdconfig.delay_ms(30)
 
-        self.send_command(0xAA)
-        for v in [0x49, 0x55, 0x20, 0x08, 0x09, 0x18]:
-            self.send_data(v)
-
-        self.send_command(0x01)
-        self.send_data(0x3F)
-
-        self.send_command(0x00)
-        self.send_data(0x5F)
-        self.send_data(0x69)
-
-        self.send_command(0x03)
-        for v in [0x00, 0x54, 0x00, 0x44]:
-            self.send_data(v)
-
-        self.send_command(0x05)
-        for v in [0x40, 0x1F, 0x1F, 0x2C]:
-            self.send_data(v)
-
-        self.send_command(0x06)
-        for v in [0x6F, 0x1F, 0x17, 0x49]:
-            self.send_data(v)
-
-        self.send_command(0x08)
-        for v in [0x6F, 0x1F, 0x1F, 0x22]:
-            self.send_data(v)
-
-        self.send_command(0x30)
-        self.send_data(0x03)
-
-        self.send_command(0x50)
-        self.send_data(0x3F)
-
-        self.send_command(0x60)
-        self.send_data(0x02)
-        self.send_data(0x00)
-
-        self.send_command(0x61)
-        for v in [0x03, 0x20, 0x01, 0xE0]:
-            self.send_data(v)
-
-        self.send_command(0x84)
-        self.send_data(0x01)
-
-        self.send_command(0xE3)
-        self.send_data(0x2F)
+        for cmd, data in INIT_SEQUENCE:
+            self.send_command(cmd)
+            for v in data:
+                self.send_data(v)
 
         self.send_command(0x04)
         self.wait_busy()
-        return 0
 
     def getbuffer(self, image, saturation: float, contrast: float, gamma: float,
-                  enhance: bool = True, show_progress: bool = True):
+                  left_text: str | None = None, right_text: str | None = None,
+                  orientation: int = 0):
         image = image.convert('RGB')
-        imwidth, imheight = image.size
+        if image.size != (self.width, self.height):
+            print(f"Input: {image.size[0]}x{image.size[1]} → {self.width}x{self.height}")
+            image = _crop_center(image, self.width, self.height)
 
-        if imwidth != self.width or imheight != self.height:
-            if show_progress:
-                print(f"Input: {imwidth}x{imheight} → {self.width}x{self.height}")
-            image = _crop_center(image, self.width, self.height, show_progress)
+        print("Enhancing...")
+        image = _enhance_for_eink(image, saturation, contrast, gamma)
 
-        if enhance:
-            if show_progress:
-                print("Enhancing...")
-            image = _enhance_for_eink(image, saturation, contrast, gamma)
+        indices = _dither_atkinson(image)
 
-        indices = _dither_atkinson(image, show_progress)
+        if left_text or right_text:
+            print("Rendering overlay...")
+            render_text_into_indices(indices, left_text, right_text, orientation)
 
-        if show_progress:
-            print("Packing buffer...")
+        print("Packing buffer...")
         flat = indices.reshape(-1)
-        packed = (flat[0::2].astype(np.uint8) << 4) | flat[1::2].astype(np.uint8)
-        buf = packed.tolist()
-
-        if show_progress:
-            print("Ready")
-        return buf
+        return ((flat[0::2].astype(np.uint8) << 4) | flat[1::2].astype(np.uint8)).tolist()
 
     def display(self, image):
         self.send_command(0x10)
         self.send_data2(image)
-        self.turn_on_display()
-
-    def Clear(self, color=0x11):
-        self.send_command(0x10)
-        self.send_data2([color] * (self.height * self.width // 2))
         self.turn_on_display()
 
     def sleep(self):
