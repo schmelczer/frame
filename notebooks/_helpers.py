@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import os
 import random
 import sys
 import tempfile
@@ -21,8 +20,6 @@ REPO = Path(__file__).resolve().parent.parent
 CACHE_DIR = Path(tempfile.gettempdir()) / "frame_notebook"
 
 DEFAULT_PEOPLE = ("Me", "Ruby")
-DEFAULT_IMMICH_URL = "https://immich.example.com"
-DEFAULT_IMMICH_API_KEY = "REDACTED_IMMICH_API_KEY"
 
 
 def bootstrap() -> None:
@@ -32,15 +29,16 @@ def bootstrap() -> None:
         if sp not in sys.path:
             sys.path.insert(0, sp)
     sys.modules.setdefault("waveshare_epd.epdconfig", ModuleType("waveshare_epd.epdconfig"))
+    from env import load_env
+
+    load_env()
 
 
 def immich_client():
+    from env import require
     from immich import ImmichClient
 
-    return ImmichClient(
-        os.environ.get("IMMICH_URL", DEFAULT_IMMICH_URL),
-        os.environ.get("IMMICH_API_KEY", DEFAULT_IMMICH_API_KEY),
-    )
+    return ImmichClient(require("IMMICH_URL"), require("IMMICH_API_KEY"))
 
 
 def is_landscape(asset: dict) -> bool:

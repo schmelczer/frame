@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import fcntl
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +9,7 @@ from PIL import Image
 
 sys.path.append(str(Path(__file__).parent / "lib"))
 from crop import face_aware_crop
+from env import load_env, require
 from homeassistant import HomeAssistantClient
 from immich import ImmichClient, get_random_photo_from_album, get_random_photo_of_people
 from overlay import format_age, format_location
@@ -18,14 +18,11 @@ from overlay import format_age, format_location
 # GPIO pins at import time, so two overlapping invocations would both crash
 # on "GPIO busy" before reaching the flock below.
 
-IMMICH_URL = os.environ.get("IMMICH_URL", "https://immich.example.com")
-IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "REDACTED_IMMICH_API_KEY")
-
-HA_URL = os.environ.get("HA_URL", "https://homeassistant.example.com")
-HA_TOKEN = os.environ.get(
-    "HA_TOKEN",
-    "REDACTED_HA_TOKEN",
-)
+load_env()
+IMMICH_URL = require("IMMICH_URL")
+IMMICH_API_KEY = require("IMMICH_API_KEY")
+HA_URL = require("HA_URL")
+HA_TOKEN = require("HA_TOKEN")
 HA_PRESENCE = {"Andras": "person.andras", "Ruby": "person.ruby"}
 
 

@@ -62,7 +62,7 @@ former `dither_test/`):
 - **Display refresh takes 12-15 seconds** — the BUSY pin polling handles this
 - **No test suite** — this is a hardware project; test by deploying to the Pi
 - **Dependencies on Pi**: `python3-pil python3-numba python3-smbus spidev gpiozero`
-- **Config via environment variables**: `IMMICH_URL`, `IMMICH_API_KEY`, `HA_URL`, `HA_TOKEN` (with hardcoded defaults in display.py)
+- **Config via `.env`** (gitignored): `IMMICH_URL`, `IMMICH_API_KEY`, `HA_URL`, `HA_TOKEN`. Loaded by `src/lib/env.py` (stdlib-only); `require(key)` raises if a value is missing. Copy `.env.example` to `.env` and fill in. The Pi keeps its own `~/frame/.env` — `sync.sh` excludes it.
 - **Uses only stdlib `urllib`** — no requests library; the Immich client uses `urllib.request` directly
 - **Single-instance lock** at `/tmp/frame.lock` (fcntl) — overlapping cron runs exit cleanly
 - `sys.path.append` is used to add `lib/` to the path from display.py

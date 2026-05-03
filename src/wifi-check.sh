@@ -4,7 +4,13 @@
 # brcmfmac chip on the Pi Zero 2W.
 
 CONNECTION="netplan-wlan0-HiddenPlace"
-PROBE_HOST="homeassistant.example.com"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+[ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
+PROBE_HOST="${HA_URL#http*://}"
+PROBE_HOST="${PROBE_HOST%%/*}"
+: "${PROBE_HOST:?HA_URL must be set in .env}"
 
 probe() {
     ping -c 1 -W 5 192.168.0.1 >/dev/null 2>&1 \
