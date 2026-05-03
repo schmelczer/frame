@@ -5,7 +5,7 @@ array; black/white survive Atkinson dithering so edges stay crisp on e-ink.
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -39,8 +39,8 @@ def format_age(asset: dict) -> str | None:
     except (ValueError, AttributeError):
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    days = (datetime.now(timezone.utc) - dt).days
+        dt = dt.replace(tzinfo=UTC)
+    days = (datetime.now(UTC) - dt).days
     if days < 0:
         return None
     if days == 0:
@@ -63,10 +63,9 @@ def format_location(asset: dict) -> str | None:
     return exif.get("city") or exif.get("state") or exif.get("country") or None
 
 
-def render_text_into_indices(indices: np.ndarray,
-                             left_text: str | None,
-                             right_text: str | None,
-                             orientation: int = 0) -> None:
+def render_text_into_indices(
+    indices: np.ndarray, left_text: str | None, right_text: str | None, orientation: int = 0
+) -> None:
     """Paint white-on-black-stroke text into a (height, width) palette-index array.
 
     Text is laid out viewer-bottom-left/right, then rotated by `orientation`
@@ -89,14 +88,28 @@ def render_text_into_indices(indices: np.ndarray,
     if left_text:
         pos = (margin, baseline)
         fill_draw.text(pos, left_text, font=font, fill=255, anchor="lb")
-        full_draw.text(pos, left_text, font=font, fill=255, anchor="lb",
-                       stroke_width=stroke_width, stroke_fill=255)
+        full_draw.text(
+            pos,
+            left_text,
+            font=font,
+            fill=255,
+            anchor="lb",
+            stroke_width=stroke_width,
+            stroke_fill=255,
+        )
 
     if right_text:
         pos = (view_w - margin, baseline)
         fill_draw.text(pos, right_text, font=font, fill=255, anchor="rb")
-        full_draw.text(pos, right_text, font=font, fill=255, anchor="rb",
-                       stroke_width=stroke_width, stroke_fill=255)
+        full_draw.text(
+            pos,
+            right_text,
+            font=font,
+            fill=255,
+            anchor="rb",
+            stroke_width=stroke_width,
+            stroke_fill=255,
+        )
 
     if orientation:
         fill_layer = fill_layer.rotate(orientation, expand=True)

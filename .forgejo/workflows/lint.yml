@@ -1,0 +1,24 @@
+name: lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ruff:
+    runs-on: docker
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Run lint.sh in check mode
+        run: ./lint.sh --check

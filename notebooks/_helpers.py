@@ -13,9 +13,9 @@ import os
 import random
 import sys
 import tempfile
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from types import ModuleType
-from typing import Callable, Iterable
 
 REPO = Path(__file__).resolve().parent.parent
 CACHE_DIR = Path(tempfile.gettempdir()) / "frame_notebook"
@@ -36,6 +36,7 @@ def bootstrap() -> None:
 
 def immich_client():
     from immich import ImmichClient
+
     return ImmichClient(
         os.environ.get("IMMICH_URL", DEFAULT_IMMICH_URL),
         os.environ.get("IMMICH_API_KEY", DEFAULT_IMMICH_API_KEY),
@@ -50,8 +51,13 @@ def is_landscape(asset: dict) -> bool:
     return w > h > 0
 
 
-def fetch_pool(client, names: Iterable[str] = DEFAULT_PEOPLE, pool_size: int = 500,
-               seed: int = 7, filter_fn: Callable[[dict], bool] = is_landscape) -> list[dict]:
+def fetch_pool(
+    client,
+    names: Iterable[str] = DEFAULT_PEOPLE,
+    pool_size: int = 500,
+    seed: int = 7,
+    filter_fn: Callable[[dict], bool] = is_landscape,
+) -> list[dict]:
     person_ids = [pid for n in names if (pid := client.get_person_id(n))]
     if not person_ids:
         raise ValueError(f"no people found: {list(names)}")
@@ -64,6 +70,7 @@ def fetch_pool(client, names: Iterable[str] = DEFAULT_PEOPLE, pool_size: int = 5
 def download_image(client, asset: dict):
     """Download (cached) and open as PIL RGB Image."""
     from PIL import Image
+
     CACHE_DIR.mkdir(exist_ok=True)
     dest = CACHE_DIR / f"{asset['id']}.jpg"
     if not dest.exists():
@@ -78,18 +85,21 @@ def silenced():
         yield
 
 
-def show_grid(rows: list[list], titles: list[list[str]], figsize_scale=(4.4, 3.0),
-              suptitle: str | None = None):
+def show_grid(
+    rows: list[list], titles: list[list[str]], figsize_scale=(4.4, 3.0), suptitle: str | None = None
+):
     """Render a 2-D image grid with matplotlib. `rows` is list-of-lists of PIL/np images."""
     import matplotlib.pyplot as plt
+
     n_rows, n_cols = len(rows), max(len(r) for r in rows)
-    fig, axes = plt.subplots(n_rows, n_cols,
-                             figsize=(figsize_scale[0] * n_cols, figsize_scale[1] * n_rows))
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(figsize_scale[0] * n_cols, figsize_scale[1] * n_rows)
+    )
     if n_rows == 1:
         axes = [axes] if n_cols == 1 else [list(axes)]
     elif n_cols == 1:
         axes = [[ax] for ax in axes]
-    for i, (row, row_titles) in enumerate(zip(rows, titles)):
+    for i, (row, row_titles) in enumerate(zip(rows, titles, strict=True)):
         for j in range(n_cols):
             ax = axes[i][j]
             if j < len(row) and row[j] is not None:

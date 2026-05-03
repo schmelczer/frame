@@ -9,8 +9,9 @@ from PIL import Image
 HEAD_EXTENSION = 0.4
 
 
-def face_aware_crop(image: Image.Image, target_w: int, target_h: int,
-                    faces: list[dict]) -> Image.Image:
+def face_aware_crop(
+    image: Image.Image, target_w: int, target_h: int, faces: list[dict]
+) -> Image.Image:
     """Resize to cover (target_w, target_h), then crop to keep faces in frame.
 
     Each face dict has imageWidth/imageHeight (the coord-space dims) and
@@ -47,17 +48,11 @@ def face_aware_crop(image: Image.Image, target_w: int, target_h: int,
 
         x_lo = min(b[0] for b in boxes)
         x_hi = max(b[2] for b in boxes)
-        if x_hi - x_lo <= target_w:
-            cx = (x_lo + x_hi) / 2
-        else:
-            cx = _weighted_center(boxes, 0, 2)
+        cx = (x_lo + x_hi) / 2 if x_hi - x_lo <= target_w else _weighted_center(boxes, 0, 2)
 
         y_lo_ext = min(b[1] - (b[3] - b[1]) * HEAD_EXTENSION for b in boxes)
         y_hi = max(b[3] for b in boxes)
-        if y_hi - y_lo_ext <= target_h:
-            cy = (y_lo_ext + y_hi) / 2
-        else:
-            cy = _weighted_center(boxes, 1, 3)
+        cy = (y_lo_ext + y_hi) / 2 if y_hi - y_lo_ext <= target_h else _weighted_center(boxes, 1, 3)
 
     x_off = max(0, min(int(cx - target_w / 2), new_w - target_w))
     y_off = max(0, min(int(cy - target_h / 2), new_h - target_h))

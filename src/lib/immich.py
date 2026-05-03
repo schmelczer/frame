@@ -4,7 +4,7 @@ import random
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.request import Request
 
@@ -35,20 +35,25 @@ def _load_history() -> tuple[set[str], datetime]:
         data = json.loads(HISTORY_FILE.read_text())
         created_at = datetime.fromisoformat(data["created_at"])
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) - created_at <= timedelta(days=7):
+            created_at = created_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) - created_at <= timedelta(days=7):
             return set(data.get("displayed", [])), created_at
         print("Photo history expired (>7 days), clearing...")
     except (FileNotFoundError, json.JSONDecodeError, ValueError, KeyError):
         pass
-    return set(), datetime.now(timezone.utc)
+    return set(), datetime.now(UTC)
 
 
 def _save_history(displayed: set[str], created_at: datetime) -> None:
-    HISTORY_FILE.write_text(json.dumps({
-        "created_at": created_at.isoformat(),
-        "displayed": sorted(displayed),
-    }, indent=2))
+    HISTORY_FILE.write_text(
+        json.dumps(
+            {
+                "created_at": created_at.isoformat(),
+                "displayed": sorted(displayed),
+            },
+            indent=2,
+        )
+    )
 
 
 @dataclass
@@ -85,13 +90,17 @@ class ImmichClient:
         items = []
         page = 1
         while True:
-            assets = self._request("POST", "/search/metadata", {
-                "personIds": person_ids,
-                "size": 250,
-                "page": page,
-                "type": "IMAGE",
-                "withExif": True,
-            }).get("assets", {})
+            assets = self._request(
+                "POST",
+                "/search/metadata",
+                {
+                    "personIds": person_ids,
+                    "size": 250,
+                    "page": page,
+                    "type": "IMAGE",
+                    "withExif": True,
+                },
+            ).get("assets", {})
             items.extend(assets.get("items", []))
             if not assets.get("nextPage"):
                 break
@@ -157,7 +166,7 @@ def _on_this_day_candidates(assets: list[dict]) -> tuple[list[dict], bool]:
     Returns (candidates, is_exact). `is_exact` is True when same-month-day matches
     exist; callers use it to weight the pool higher than the looser ±3-day fallback.
     """
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     dated = []
     for a in assets:
         exif = a.get("exifInfo") or {}
@@ -184,7 +193,7 @@ def _on_this_day_candidates(assets: list[dict]) -> tuple[list[dict], bool]:
 
 def _pick_weighted_random(assets: list[dict]) -> dict:
     """Pick random asset, biased towards on-this-day memories, favorites, and recents."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    cutoff = datetime.now(UTC) - timedelta(days=30)
     favorites = [a for a in assets if a.get("isFavorite")]
     recent = []
     for a in assets:
@@ -208,8 +217,9 @@ def _pick_weighted_random(assets: list[dict]) -> dict:
     return random.choice(pool)
 
 
-def _pick_and_download(client: ImmichClient, assets: list[dict],
-                       orientation: int, source_label: str) -> tuple[Path, dict]:
+def _pick_and_download(
+    client: ImmichClient, assets: list[dict], orientation: int, source_label: str
+) -> tuple[Path, dict]:
     portrait = orientation in (90, 270)
     filtered = _filter_by_orientation(assets, portrait)
     if not filtered:
@@ -231,7 +241,9 @@ def _pick_and_download(client: ImmichClient, assets: list[dict],
     return path, asset
 
 
-def get_random_photo_of_people(client: ImmichClient, names: list[str], orientation: int = 0) -> tuple[Path, dict]:
+def get_random_photo_of_people(
+    client: ImmichClient, names: list[str], orientation: int = 0
+) -> tuple[Path, dict]:
     person_ids = [pid for name in names if (pid := client.get_person_id(name))]
     if not person_ids:
         raise ValueError(f"No people found: {names}")
@@ -243,7 +255,9 @@ def get_random_photo_of_people(client: ImmichClient, names: list[str], orientati
     return _pick_and_download(client, assets, orientation, f"photos for {', '.join(names)}")
 
 
-def get_random_photo_from_album(client: ImmichClient, album_name: str, orientation: int = 0) -> tuple[Path, dict]:
+def get_random_photo_from_album(
+    client: ImmichClient, album_name: str, orientation: int = 0
+) -> tuple[Path, dict]:
     album_id = client.get_album_id(album_name)
     if not album_id:
         raise ValueError(f"Album not found: {album_name}")

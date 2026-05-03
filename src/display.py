@@ -9,10 +9,11 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.append(str(Path(__file__).parent / "lib"))
-from immich import ImmichClient, get_random_photo_of_people, get_random_photo_from_album
-from homeassistant import HomeAssistantClient
-from overlay import format_age, format_location
 from crop import face_aware_crop
+from homeassistant import HomeAssistantClient
+from immich import ImmichClient, get_random_photo_from_album, get_random_photo_of_people
+from overlay import format_age, format_location
+
 # waveshare_epd is imported lazily after the lock — its epdconfig claims
 # GPIO pins at import time, so two overlapping invocations would both crash
 # on "GPIO busy" before reaching the flock below.
@@ -21,23 +22,33 @@ IMMICH_URL = os.environ.get("IMMICH_URL", "https://immich.example.com")
 IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "REDACTED_IMMICH_API_KEY")
 
 HA_URL = os.environ.get("HA_URL", "https://homeassistant.example.com")
-HA_TOKEN = os.environ.get("HA_TOKEN", "REDACTED_HA_TOKEN")
+HA_TOKEN = os.environ.get(
+    "HA_TOKEN",
+    "REDACTED_HA_TOKEN",
+)
 HA_PRESENCE = {"Andras": "person.andras", "Ruby": "person.ruby"}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Display image on e-ink frame")
-    parser.add_argument("--people", default="Me,Ruby",
-                        help="Comma-separated names for Immich search")
+    parser.add_argument(
+        "--people", default="Me,Ruby", help="Comma-separated names for Immich search"
+    )
     parser.add_argument("--album", help="Fetch from album (overrides --people)")
-    parser.add_argument("-o", "--orientation", type=int, choices=[0, 90, 180, 270],
-                        default=0, help="Rotation in degrees")
+    parser.add_argument(
+        "-o",
+        "--orientation",
+        type=int,
+        choices=[0, 90, 180, 270],
+        default=0,
+        help="Rotation in degrees",
+    )
     parser.add_argument("--saturation", type=float, default=1.3)
     parser.add_argument("--contrast", type=float, default=1.05)
     parser.add_argument("--gamma", type=float, default=0.90)
     args = parser.parse_args()
 
-    lock_fd = open("/tmp/frame.lock", "w")
+    lock_fd = open("/tmp/frame.lock", "w")  # noqa: SIM115 — held for process lifetime
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -84,9 +95,15 @@ def main() -> None:
             img = face_aware_crop(img, target_w, target_h, faces)
             if args.orientation:
                 img = img.rotate(args.orientation, expand=True)
-            buf = epd.getbuffer(img, saturation=args.saturation, contrast=args.contrast,
-                                gamma=args.gamma, left_text=left_text, right_text=right_text,
-                                orientation=args.orientation)
+            buf = epd.getbuffer(
+                img,
+                saturation=args.saturation,
+                contrast=args.contrast,
+                gamma=args.gamma,
+                left_text=left_text,
+                right_text=right_text,
+                orientation=args.orientation,
+            )
             epd.display(buf)
         finally:
             epd.sleep()
