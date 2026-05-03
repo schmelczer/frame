@@ -151,8 +151,12 @@ def _filter_by_orientation(assets: list[dict], portrait: bool) -> list[dict]:
     return out
 
 
-def _on_this_day_candidates(assets: list[dict]) -> list[dict]:
-    """Photos taken on today's month-day in past years, with a ±3-day fallback."""
+def _on_this_day_candidates(assets: list[dict]) -> tuple[list[dict], bool]:
+    """Photos taken on today's month-day in past years, with a ±3-day fallback.
+
+    Returns (candidates, is_exact). `is_exact` is True when same-month-day matches
+    exist; callers use it to weight the pool higher than the looser ±3-day fallback.
+    """
     today = datetime.now(timezone.utc).date()
     dated = []
     for a in assets:
@@ -169,13 +173,13 @@ def _on_this_day_candidates(assets: list[dict]) -> list[dict]:
 
     exact = [a for a, dt in dated if (dt.month, dt.day) == (today.month, today.day)]
     if exact:
-        return exact
+        return exact, True
 
     nearby_md = set()
     for offset in range(-3, 4):
         d = today + timedelta(days=offset)
         nearby_md.add((d.month, d.day))
-    return [a for a, dt in dated if (dt.month, dt.day) in nearby_md]
+    return [a for a, dt in dated if (dt.month, dt.day) in nearby_md], False
 
 
 def _pick_weighted_random(assets: list[dict]) -> dict:
@@ -189,10 +193,10 @@ def _pick_weighted_random(assets: list[dict]) -> dict:
                 recent.append(a)
         except (ValueError, AttributeError):
             pass
-    on_this_day = _on_this_day_candidates(assets)
+    on_this_day, on_this_day_exact = _on_this_day_candidates(assets)
 
     candidates = [
-        ("on this day", on_this_day, 0.10),
+        ("on this day", on_this_day, 0.30 if on_this_day_exact else 0.10),
         ("favorites", favorites, 0.18),
         ("recent", recent, 0.36),
         ("all", assets, 0.36),

@@ -49,11 +49,11 @@ def format_age(asset: dict) -> str | None:
         return "Yesterday"
     if days < 7:
         return f"{days} days ago"
-    for n, unit in ((365, "year"), (30, "month"), (7, "week")):
+    for n, unit in ((12 * 30, "year"), (30, "month"), (7, "week")):
         if days >= n:
             count = max(1, days // n)
             if count == 1:
-                return f"Last {unit}"
+                return f"A {unit} ago"
             return f"{count} {unit}s ago"
 
 
