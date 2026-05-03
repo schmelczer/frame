@@ -1,12 +1,12 @@
 ## Installation
 
-sudo raspi-confi
+sudo raspi-config
 - Enable SPI
 
 ```sh
 sudo apt update
 sudo apt upgrade
-sudo apt install -y python3-pip python3-pil python3-opencv python3-smbus python3-numba
+sudo apt install -y python3-pip python3-pil python3-smbus python3-numba
 sudo swapoff -a
 sudo systemctl mask swap.target
 sudo systemctl disable --now bluetooth
@@ -14,7 +14,7 @@ sudo systemctl disable --now bluetooth
 sudo nmcli c modify netplan-wlan0-HiddenPlace 802-11-wireless.powersave 2
 ```
 
-Execute `sudo crontab -e` reland add
+Execute `sudo crontab -e` and add
 ```
 @reboot /usr/sbin/iw wlan0 set power_save off
 */5 * * * * /home/andras/frame/wifi-check.sh >> /home/andras/wifi.log 2>&1

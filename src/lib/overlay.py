@@ -55,6 +55,7 @@ def format_age(asset: dict) -> str | None:
             if count == 1:
                 return f"A {unit} ago"
             return f"{count} {unit}s ago"
+    return None
 
 
 def format_location(asset: dict) -> str | None:

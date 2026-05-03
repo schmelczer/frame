@@ -31,7 +31,7 @@ python3 display.py --saturation 1.5 --contrast 1.1 --gamma 0.85
 
 **`src/lib/immich.py`** — Immich API client. Key behaviors:
 - `_load_history()` / `_save_history()` track displayed photos in `photo_history.json` to avoid repeats (resets after 7 days). Asset is only marked displayed after a successful download.
-- `_pick_weighted_random()` biases selection: 20% favorites, 50% recently-added (last 30 days, by Immich `createdAt`), otherwise uniform random
+- `_pick_weighted_random()` picks a pool first, then a uniform random asset from it. Weights: on-this-day 0.30 (or 0.10 for the ±3-day fallback), favorites 0.18, recent-30-days 0.36, all 0.36. Empty pools are dropped before sampling.
 - Filters photos by orientation (portrait/landscape) based on EXIF data including rotation tags. Raises if nothing matches the requested orientation.
 - Downloads preview-size thumbnails, not originals
 - Asset lists (people-search and album) are cached on disk in `/tmp/frame_cache/` for 1 hour
@@ -40,10 +40,10 @@ python3 display.py --saturation 1.5 --contrast 1.1 --gamma 0.85
 **`src/lib/homeassistant.py`** — Simple Home Assistant REST client for presence detection.
 
 **`src/lib/waveshare_epd/epd7in3e.py`** — Modified Waveshare driver. The `getbuffer()` method handles the full image pipeline:
-- Center-crops to 800x480 (or 480x800)
+- Falls back to a face-less center crop via `face_aware_crop` if the input isn't already at target size
 - Enhances saturation/contrast/gamma for e-ink (caller passes values; CLI defaults live in `display.py`: saturation=1.3, contrast=1.05, gamma=0.90)
 - Atkinson dithering to 6-color palette using numba JIT; produces palette indices directly (no Pillow quantize round-trip)
-- Packs into 4-bit-per-pixel buffer (two pixels per byte) via numpy
+- Packs into 4-bit-per-pixel buffer (two pixels per byte) and returns `bytes`
 
 **`src/lib/waveshare_epd/epdconfig.py`** — GPIO/SPI hardware config. **Critical: PWR pin is BCM 27** (not default 18).
 
@@ -61,7 +61,7 @@ former `dither_test/`):
 - **Always call `epd.sleep()` after display** — the driver uses a try/finally pattern for this
 - **Display refresh takes 12-15 seconds** — the BUSY pin polling handles this
 - **No test suite** — this is a hardware project; test by deploying to the Pi
-- **Dependencies on Pi**: `python3-pil python3-opencv python3-numba python3-smbus spidev gpiozero`
+- **Dependencies on Pi**: `python3-pil python3-numba python3-smbus spidev gpiozero`
 - **Config via environment variables**: `IMMICH_URL`, `IMMICH_API_KEY`, `HA_URL`, `HA_TOKEN` (with hardcoded defaults in display.py)
 - **Uses only stdlib `urllib`** — no requests library; the Immich client uses `urllib.request` directly
 - **Single-instance lock** at `/tmp/frame.lock` (fcntl) — overlapping cron runs exit cleanly

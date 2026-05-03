@@ -9,7 +9,8 @@ def urlopen_with_retry(req: Request, timeout: int = 30):
     for delay in (3, 10, None):
         try:
             return urlopen(req, timeout=timeout)
-        except (URLError, TimeoutError):
+        except (URLError, TimeoutError) as e:
             if delay is None:
                 raise
+            print(f"urlopen {req.full_url}: {e}; retry in {delay}s")
             time.sleep(delay)

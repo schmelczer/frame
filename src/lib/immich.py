@@ -144,6 +144,9 @@ class ImmichClient:
         return assets
 
 
+_ROTATED_ORIENTATIONS = {5, 6, 7, 8, "5", "6", "7", "8"}
+
+
 def _filter_by_orientation(assets: list[dict], portrait: bool) -> list[dict]:
     """Keep assets matching the requested orientation. Skips assets without EXIF dimensions."""
     out = []
@@ -153,7 +156,7 @@ def _filter_by_orientation(assets: list[dict], portrait: bool) -> list[dict]:
         h = exif.get("exifImageHeight") or 0
         if not (w and h):
             continue
-        if exif.get("orientation") in (6, 8, "6", "8"):
+        if exif.get("orientation") in _ROTATED_ORIENTATIONS:
             w, h = h, w
         if (h > w) == portrait:
             out.append(a)
@@ -166,7 +169,7 @@ def _on_this_day_candidates(assets: list[dict]) -> tuple[list[dict], bool]:
     Returns (candidates, is_exact). `is_exact` is True when same-month-day matches
     exist; callers use it to weight the pool higher than the looser ±3-day fallback.
     """
-    today = datetime.now(UTC).date()
+    today = datetime.now().date()
     dated = []
     for a in assets:
         exif = a.get("exifInfo") or {}

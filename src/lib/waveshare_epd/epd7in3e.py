@@ -2,9 +2,9 @@
 # Waveshare 7.3" 6-color e-Paper driver (modified)
 
 import numpy as np
-import cv2
 from PIL import Image, ImageEnhance
 from numba import jit
+from crop import face_aware_crop
 from progress import ProgressBar
 from overlay import render_text_into_indices
 from . import epdconfig
@@ -13,13 +13,13 @@ EPD_WIDTH = 800
 EPD_HEIGHT = 480
 
 # 6-color e-ink encoding: indices 0,1,2,3,5,6 are wire-format colors;
-# 4 is reserved/unused (filled with BLACK so nearest-color never picks it).
+# 4 is reserved/unused — _find_nearest_color skips it explicitly.
 PALETTE_RGB = np.array([
     [0, 0, 0],        # 0: BLACK
     [255, 255, 255],  # 1: WHITE
     [255, 255, 0],    # 2: YELLOW
     [255, 0, 0],      # 3: RED
-    [0, 0, 0],        # 4: unused
+    [0, 0, 0],        # 4: unused (skipped)
     [0, 0, 255],      # 5: BLUE
     [0, 255, 0],      # 6: GREEN
 ], dtype=np.float64)
@@ -56,28 +56,12 @@ def _enhance_for_eink(image: Image.Image, saturation: float,
     return img
 
 
-def _crop_center(image: Image.Image, target_w: int, target_h: int) -> Image.Image:
-    print("Center cropping...")
-    img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    img_h, img_w = img_cv.shape[:2]
-    img_aspect, target_aspect = img_w / img_h, target_w / target_h
-
-    if img_aspect < target_aspect:
-        new_w, new_h = target_w, int(target_w / img_aspect)
-    else:
-        new_w, new_h = int(target_h * img_aspect), target_h
-
-    img_cv = cv2.resize(img_cv, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
-    x_off = (new_w - target_w) // 2
-    y_off = (new_h - target_h) // 2
-    cropped = img_cv[y_off:y_off + target_h, x_off:x_off + target_w]
-    return Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
-
-
 @jit(nopython=True, cache=True)
 def _find_nearest_color(r, g, b, palette, weights):
     best_idx, best_dist = 0, 1e10
     for i in range(palette.shape[0]):
+        if i == 4:  # reserved palette slot
+            continue
         dr = (palette[i, 0] - r) * weights[0]
         dg = (palette[i, 1] - g) * weights[1]
         db = (palette[i, 2] - b) * weights[2]
@@ -133,6 +117,8 @@ def _dither_atkinson(image: Image.Image) -> np.ndarray:
     print("Dithering...")
     progress = ProgressBar(height, desc="Dithering")
 
+    # Chunking is for progress reporting only; error diffusion still
+    # spans chunks because `img` is the same buffer between calls.
     chunk_size = 48
     for i in range((height + chunk_size - 1) // chunk_size):
         start, end = i * chunk_size, min((i + 1) * chunk_size, height)
@@ -208,7 +194,7 @@ class EPD:
         image = image.convert('RGB')
         if image.size != (self.width, self.height):
             print(f"Input: {image.size[0]}x{image.size[1]} → {self.width}x{self.height}")
-            image = _crop_center(image, self.width, self.height)
+            image = face_aware_crop(image, self.width, self.height, [])
 
         print("Enhancing...")
         image = _enhance_for_eink(image, saturation, contrast, gamma)
@@ -221,7 +207,7 @@ class EPD:
 
         print("Packing buffer...")
         flat = indices.reshape(-1)
-        return ((flat[0::2].astype(np.uint8) << 4) | flat[1::2].astype(np.uint8)).tolist()
+        return bytes((flat[0::2] << 4) | flat[1::2])
 
     def display(self, image):
         self.send_command(0x10)
