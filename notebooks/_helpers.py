@@ -1,6 +1,6 @@
 """Shared helpers for the frame project notebooks.
 
-Each notebook should call `bootstrap()` first — it puts `src/lib/` on the import
+Each notebook should call `bootstrap()` first. It puts `src/lib/` on the import
 path and stubs `waveshare_epd.epdconfig` so the production helpers can be
 imported without trying to claim GPIO pins.
 """
@@ -9,17 +9,15 @@ from __future__ import annotations
 
 import contextlib
 import io
-import random
+import json
 import sys
-import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
 REPO = Path(__file__).resolve().parent.parent
-CACHE_DIR = Path(tempfile.gettempdir()) / "frame_notebook"
-
-DEFAULT_PEOPLE = ("Me", "Ruby")
+PHOTOS_DIR = REPO / "photos"
+FACES_FILE = PHOTOS_DIR / "faces.json"
 
 
 def bootstrap() -> None:
@@ -29,51 +27,69 @@ def bootstrap() -> None:
         if sp not in sys.path:
             sys.path.insert(0, sp)
     sys.modules.setdefault("waveshare_epd.epdconfig", ModuleType("waveshare_epd.epdconfig"))
-    from env import load_env
-
-    load_env()
 
 
-def immich_client():
-    from env import require
-    from immich import ImmichClient
+def center_crop(image, target_w: int, target_h: int):
+    """Resize-to-cover then centre-crop. Used as the baseline in crop_compare."""
+    import math
 
-    return ImmichClient(require("IMMICH_URL"), require("IMMICH_API_KEY"))
-
-
-def is_landscape(asset: dict) -> bool:
-    exif = asset.get("exifInfo") or {}
-    w, h = exif.get("exifImageWidth") or 0, exif.get("exifImageHeight") or 0
-    if exif.get("orientation") in (6, 8, "6", "8"):
-        w, h = h, w
-    return w > h > 0
-
-
-def fetch_pool(
-    client,
-    names: Iterable[str] = DEFAULT_PEOPLE,
-    pool_size: int = 500,
-    seed: int = 7,
-    filter_fn: Callable[[dict], bool] = is_landscape,
-) -> list[dict]:
-    person_ids = [pid for n in names if (pid := client.get_person_id(n))]
-    if not person_ids:
-        raise ValueError(f"no people found: {list(names)}")
-    assets = client.search_assets_by_people(person_ids)
-    filtered = [a for a in assets if filter_fn(a)]
-    rng = random.Random(seed)
-    return rng.sample(filtered, min(pool_size, len(filtered)))
-
-
-def download_image(client, asset: dict):
-    """Download (cached) and open as PIL RGB Image."""
     from PIL import Image
 
-    CACHE_DIR.mkdir(exist_ok=True)
-    dest = CACHE_DIR / f"{asset['id']}.jpg"
-    if not dest.exists():
-        client.download_asset(asset["id"], dest)
-    return Image.open(dest).convert("RGB")
+    iw, ih = image.size
+    if iw / ih < target_w / target_h:
+        new_w, new_h = target_w, math.ceil(target_w * ih / iw)
+    else:
+        new_w, new_h = math.ceil(target_h * iw / ih), target_h
+    resized = image.resize((new_w, new_h), Image.LANCZOS)
+    x = max(0, (new_w - target_w) // 2)
+    y = max(0, (new_h - target_h) // 2)
+    return resized.crop((x, y, x + target_w, y + target_h))
+
+
+def local_pool(
+    filter_fn: Callable[[dict], bool] | None = None,
+) -> list[dict]:
+    """Pool of bundled CC-licensed photos under photos/.
+
+    Face boxes from photos/faces.json are attached as `_faces` when present.
+    """
+    from PIL import Image
+
+    faces_by_filename = {}
+    if FACES_FILE.exists():
+        raw = json.loads(FACES_FILE.read_text())
+        faces_by_filename = {k: v for k, v in raw.items() if not k.startswith("_")}
+
+    out = []
+    for path in sorted(PHOTOS_DIR.glob("*.jpg")):
+        if path.name == "frame.jpg":
+            continue
+        with Image.open(path) as im:
+            w, h = im.size
+        out.append(
+            {
+                "id": path.stem,
+                "originalFileName": path.name,
+                "_local_path": str(path),
+                "_faces": faces_by_filename.get(path.name, []),
+                "exifInfo": {"exifImageWidth": w, "exifImageHeight": h},
+            }
+        )
+    if filter_fn is not None:
+        out = [a for a in out if filter_fn(a)]
+    return out
+
+
+def image_faces(asset: dict) -> list[dict]:
+    """Face boxes attached to a bundled photo asset."""
+    return asset.get("_faces", [])
+
+
+def open_image(asset: dict):
+    """Open a bundled photo asset as PIL RGB."""
+    from PIL import Image
+
+    return Image.open(asset["_local_path"]).convert("RGB")
 
 
 @contextlib.contextmanager
@@ -81,30 +97,3 @@ def silenced():
     """Suppress the production code's print() chatter during batch loops."""
     with contextlib.redirect_stdout(io.StringIO()):
         yield
-
-
-def show_grid(
-    rows: list[list], titles: list[list[str]], figsize_scale=(4.4, 3.0), suptitle: str | None = None
-):
-    """Render a 2-D image grid with matplotlib. `rows` is list-of-lists of PIL/np images."""
-    import matplotlib.pyplot as plt
-
-    n_rows, n_cols = len(rows), max(len(r) for r in rows)
-    fig, axes = plt.subplots(
-        n_rows, n_cols, figsize=(figsize_scale[0] * n_cols, figsize_scale[1] * n_rows)
-    )
-    if n_rows == 1:
-        axes = [axes] if n_cols == 1 else [list(axes)]
-    elif n_cols == 1:
-        axes = [[ax] for ax in axes]
-    for i, (row, row_titles) in enumerate(zip(rows, titles, strict=True)):
-        for j in range(n_cols):
-            ax = axes[i][j]
-            if j < len(row) and row[j] is not None:
-                ax.imshow(row[j])
-                ax.set_title(row_titles[j], fontsize=10)
-            ax.axis("off")
-    if suptitle:
-        fig.suptitle(suptitle, fontsize=12)
-    plt.tight_layout()
-    return fig

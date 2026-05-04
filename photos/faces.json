@@ -1,0 +1,41 @@
+{
+  "_comment": "Hand-eyeballed face boxes for crop_compare.ipynb. Coordinates are in the original image's pixel space; imageWidth/imageHeight match the on-disk file dimensions. Same shape as Immich's per-asset face data.",
+  "man_on_cliff.jpg": [
+    {
+      "imageWidth": 1600,
+      "imageHeight": 1067,
+      "boundingBoxX1": 380,
+      "boundingBoxY1": 410,
+      "boundingBoxX2": 510,
+      "boundingBoxY2": 510
+    }
+  ],
+  "man_with_dog.jpg": [
+    {
+      "imageWidth": 1600,
+      "imageHeight": 1067,
+      "boundingBoxX1": 1080,
+      "boundingBoxY1": 200,
+      "boundingBoxX2": 1320,
+      "boundingBoxY2": 450
+    }
+  ],
+  "mother_and_daughter.jpg": [
+    {
+      "imageWidth": 800,
+      "imageHeight": 1200,
+      "boundingBoxX1": 160,
+      "boundingBoxY1": 240,
+      "boundingBoxX2": 380,
+      "boundingBoxY2": 510
+    },
+    {
+      "imageWidth": 800,
+      "imageHeight": 1200,
+      "boundingBoxX1": 380,
+      "boundingBoxY1": 320,
+      "boundingBoxX2": 580,
+      "boundingBoxY2": 510
+    }
+  ]
+}
