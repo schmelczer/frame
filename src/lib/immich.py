@@ -13,6 +13,14 @@ from net import urlopen_with_retry
 HISTORY_FILE = Path(__file__).parent.parent / "photo_history.json"
 CACHE_DIR = Path(tempfile.gettempdir()) / "frame_cache"
 
+# Soft preference for picking photos whose orientation matches the frame.
+# Mismatched-orientation photos still appear, just less often, since
+# face_aware_crop handles them via the rule-of-thirds composition.
+ORIENTATION_MATCH_WEIGHT = 0.8
+ORIENTATION_DIFFER_WEIGHT = 0.2
+
+_ROTATED_EXIF_ORIENTATIONS = {5, 6, 7, 8, "5", "6", "7", "8"}
+
 
 def _cache_get(key: str) -> list[dict] | None:
     path = CACHE_DIR / f"{key}.json"
@@ -144,23 +152,36 @@ class ImmichClient:
         return assets
 
 
-_ROTATED_ORIENTATIONS = {5, 6, 7, 8, "5", "6", "7", "8"}
+def _is_portrait(asset: dict) -> bool | None:
+    """True if the asset's pixel orientation is portrait, None if EXIF dims are missing."""
+    exif = asset.get("exifInfo") or {}
+    w, h = exif.get("exifImageWidth") or 0, exif.get("exifImageHeight") or 0
+    if not (w and h):
+        return None
+    if exif.get("orientation") in _ROTATED_EXIF_ORIENTATIONS:
+        w, h = h, w
+    return h > w
 
 
-def _filter_by_orientation(assets: list[dict], portrait: bool) -> list[dict]:
-    """Keep assets matching the requested orientation. Skips assets without EXIF dimensions."""
-    out = []
-    for a in assets:
-        exif = a.get("exifInfo") or {}
-        w = exif.get("exifImageWidth") or 0
-        h = exif.get("exifImageHeight") or 0
-        if not (w and h):
-            continue
-        if exif.get("orientation") in _ROTATED_ORIENTATIONS:
-            w, h = h, w
-        if (h > w) == portrait:
-            out.append(a)
-    return out
+def _bias_by_orientation(candidates: list[dict], frame_portrait: bool) -> list[dict]:
+    """Pick the matching or differing-orientation pool per the configured weights."""
+    matching, differing = [], []
+    for a in candidates:
+        is_p = _is_portrait(a)
+        # Unknown orientation defaults to "matching" — better to include than to drop.
+        if is_p is None or is_p == frame_portrait:
+            matching.append(a)
+        else:
+            differing.append(a)
+    if not differing:
+        return matching
+    if not matching:
+        return differing
+    pools = [(matching, ORIENTATION_MATCH_WEIGHT), (differing, ORIENTATION_DIFFER_WEIGHT)]
+    pool, _ = random.choices(pools, weights=[w for _, w in pools])[0]
+    chosen = "matching" if pool is matching else "differing"
+    print(f"Orientation: {len(matching)} matching, {len(differing)} differing, picked {chosen}")
+    return pool
 
 
 def _on_this_day_candidates(assets: list[dict]) -> tuple[list[dict], bool]:
@@ -223,21 +244,22 @@ def _pick_weighted_random(assets: list[dict]) -> dict:
 def _pick_and_download(
     client: ImmichClient, assets: list[dict], orientation: int, source_label: str
 ) -> tuple[Path, dict]:
-    portrait = orientation in (90, 270)
-    filtered = _filter_by_orientation(assets, portrait)
-    if not filtered:
-        raise ValueError(f"No {'portrait' if portrait else 'landscape'} photos in {source_label}")
+    if not assets:
+        raise ValueError(f"No photos in {source_label}")
 
     displayed, created_at = _load_history()
-    candidates = [a for a in filtered if a.get("id") not in displayed]
+    candidates = [a for a in assets if a.get("id") not in displayed]
     if not candidates:
-        print(f"All {len(filtered)} photos shown, picking from full list")
-        candidates = filtered
+        print(f"All {len(assets)} photos shown, picking from full list")
+        candidates = assets
     else:
-        print(f"Photos: {len(candidates)} new / {len(filtered)} total")
+        print(f"Photos: {len(candidates)} new / {len(assets)} total")
+
+    candidates = _bias_by_orientation(candidates, orientation in (90, 270))
 
     asset = _pick_weighted_random(candidates)
-    dest = Path(tempfile.gettempdir()) / "immich_photo.jpg"
+    with tempfile.NamedTemporaryFile(prefix="immich_photo_", suffix=".jpg", delete=False) as tmp:
+        dest = Path(tmp.name)
     path = client.download_asset(asset["id"], dest)
     displayed.add(asset["id"])
     _save_history(displayed, created_at)

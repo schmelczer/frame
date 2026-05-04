@@ -1,25 +1,29 @@
-"""Resize-to-cover then crop, biased toward Immich-detected face boxes."""
+"""Resize-to-cover with face-aware positioning.
+
+When a portrait source is cropped onto a landscape target, the face joint-span
+centre lands on the top third of the crop window instead of the middle, so the
+eyes sit on the upper-third line where landscape composition naturally reads.
+"""
 
 import math
 
 from PIL import Image
 
 # Face boxes end at the hairline; extend each box upward by this fraction of
-# its own height so the fit-check considers the head, not just the face.
+# its own height so the joint-span midpoint lands closer to the eyes than the
+# bare face centre.
 HEAD_EXTENSION = 0.4
 
 
 def face_aware_crop(
     image: Image.Image, target_w: int, target_h: int, faces: list[dict]
 ) -> Image.Image:
-    """Resize to cover (target_w, target_h), then crop to keep faces in frame.
+    """Resize to cover (target_w, target_h), then crop biased toward face boxes.
 
-    Each face dict has imageWidth/imageHeight (the coord-space dims) and
-    boundingBoxX1/Y1/X2/Y2. Per axis: if every (head-extended) face fits in
-    the crop we centre on the joint span so all faces are included with hair
-    clearance on top. If the span doesn't fit, we fall back to the
-    area-weighted centroid of the unextended boxes — that biases toward the
-    biggest, presumably foreground, face. Plain center crop when no faces.
+    Joint-span midpoint of the head-extended boxes sets the crop centre. For
+    portrait sources rendered on a landscape target, the centre is placed at
+    the top third of the crop window (rule of thirds) instead of the middle.
+    Plain centre crop when no faces.
     """
     img_w, img_h = image.size
     img_aspect = img_w / img_h
@@ -43,22 +47,13 @@ def face_aware_crop(
             y1 = f["boundingBoxY1"] * sy
             x2 = f["boundingBoxX2"] * sx
             y2 = f["boundingBoxY2"] * sy
-            area = max(0.0, (x2 - x1) * (y2 - y1))
-            boxes.append((x1, y1, x2, y2, area))
-
-        x_lo = min(b[0] for b in boxes)
-        x_hi = max(b[2] for b in boxes)
-        cx = (x_lo + x_hi) / 2 if x_hi - x_lo <= target_w else _weighted_center(boxes, 0, 2)
-
+            boxes.append((x1, y1, x2, y2))
+        cx = (min(b[0] for b in boxes) + max(b[2] for b in boxes)) / 2
         y_lo_ext = min(b[1] - (b[3] - b[1]) * HEAD_EXTENSION for b in boxes)
         y_hi = max(b[3] for b in boxes)
-        cy = (y_lo_ext + y_hi) / 2 if y_hi - y_lo_ext <= target_h else _weighted_center(boxes, 1, 3)
+        cy = (y_lo_ext + y_hi) / 2
 
+    y_anchor = target_h / 3 if img_h > img_w and target_w > target_h else target_h / 2
     x_off = max(0, min(int(cx - target_w / 2), new_w - target_w))
-    y_off = max(0, min(int(cy - target_h / 2), new_h - target_h))
+    y_off = max(0, min(int(cy - y_anchor), new_h - target_h))
     return resized.crop((x_off, y_off, x_off + target_w, y_off + target_h))
-
-
-def _weighted_center(boxes: list[tuple], lo: int, hi: int) -> float:
-    total = sum(b[4] for b in boxes) or 1.0
-    return sum((b[lo] + b[hi]) / 2 * b[4] for b in boxes) / total
