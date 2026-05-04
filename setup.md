@@ -1,6 +1,6 @@
 # Pi setup
 
-Flash an image using the [Raspberry Pi imager](https://www.raspberrypi.com/software/), I picked the Raspberry Pi OS Lite (based on debian trixie) and set up WiFi & SSH from the Customisation settings.
+Flash an image using the [Raspberry Pi imager](https://www.raspberrypi.com/software/). I picked Raspberry Pi OS Lite (based on Debian Trixie) and set up WiFi & SSH from the Customisation settings.
 
 ## First commands
 
@@ -38,9 +38,10 @@ In `crontab -e`, add:
 In `sudo crontab -e`, add:
 
 ```
-@reboot /usr/sbin/iw wlan0 set power_save off*/5 * * * * /home/<user>/frame/wifi-check.sh >> /home/<user>/wifi.log 2>&1
+@reboot /usr/sbin/iw wlan0 set power_save off
+*/5 * * * * /home/<user>/frame/wifi-check.sh >> /home/<user>/wifi.log 2>&1
 ```
 
 ## Hardware notes
 
-The driver in `src/lib/waveshare_epd/` is adapted from Waveshare's [PhotoPainter](https://www.waveshare.com/wiki/PhotoPainter) project. That wikipage has the wiring, init sequence, and 6-colour palette docs.
+The driver in `src/lib/waveshare_epd/` is adapted from Waveshare's [PhotoPainter](https://www.waveshare.com/wiki/PhotoPainter) project. That wiki page has the wiring, init sequence, and 6-colour palette docs.
