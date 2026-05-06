@@ -1,6 +1,6 @@
 # Frame
 
-A small e-ink photo frame for our home. It pulls from our self-hosted [Immich](https://immich.app/) library, checks the self-hosted [Home Assistant](https://www.home-assistant.io/) to see if anyone is home, and shows a photo on the [PhotoPainter](https://www.waveshare.com/wiki/PhotoPainter) (Waveshare 7.3" 6-colour panel hooked up to a Raspberry Pi Zero 2W) for everyone to enjoy.
+A small e-ink photo frame for our home. It pulls from a self-hosted [Immich](https://immich.app/) library, checks a self-hosted [Home Assistant](https://www.home-assistant.io/) to see if anyone is home, and shows a photo on the [PhotoPainter](https://www.waveshare.com/wiki/PhotoPainter) (Waveshare 7.3" 6-colour panel hooked up to a Raspberry Pi Zero 2W) for everyone to enjoy.
 
 <p align="center"><img src="photos/frame.jpg" alt="The frame showing a dithered landscape photo with a small overlay reading '2 years ago' and 'Palmeiras'" width="420"></p>
 <p align="center"><sub><em>The bottom corners show the photo's capture age and EXIF location. This one was taken in Palmeiras two years ago.</em></sub></p>
@@ -19,7 +19,7 @@ It was a fun afternoon project with Claude Code, a bit of experimenting with dif
 
 1. Quits if it's between midnight and 7am.
 2. Asks Home Assistant whether anyone in `HA_PRESENCE` is home. If not, quits to preserve power and not strain the e-ink unnecessarily.
-3. Picks a random photo from Immich. The pool is weighted: ~30% "on this day" memories (10% if only the ±3-day fallback fires), ~18% favourites, ~36% the last 30 days, and ~36% everything else. A 7-day rolling history avoids repeats; orientation match gets 4x the weight of mismatch. See [immich.py](./src/lib/immich.py).
+3. Picks a random photo from Immich. The pool is weighted: ~30% "on this day" memories (10% if only the ±3-day fallback fires), ~18% favourites, ~36% the last 30 days, and ~36% everything else. A 7-day rolling history avoids repeats; orientation match gets 4x the weight of mismatch. Before accepting a candidate, the picker verifies that every detected head fits inside the crop with a small safety margin; rejected candidates are skipped. See [immich.py](./src/lib/immich.py).
 4. Crops around any detected faces, boosts contrast and saturation (both lacking on e-ink), dithers down to the 6-colour palette, and pushes it to the panel. The capture age and EXIF location are painted into the bottom corners as white-on-black-stroke text, so dithering can't smear the edges.
 
 ## Image pipeline
@@ -28,13 +28,16 @@ The two choices that matter most are `face_aware_crop` and Atkinson dithering.
 
 ### Cropping
 
-Obviously, the frame can only be in orientation at a time but I didn't want to limit it to only show portrait or landscape photos. So the `face_aware_crop` function resize-crops to fill the frame while keeping all faces within the frame. A landscape shot with room around the subject usually crops cleanly to portrait this way. For finding faces, it relies on the bounding boxes returned by Immich.
+The frame can only be in one orientation at a time, but I didn't want to limit it to only show portrait or landscape photos. So `face_aware_crop` resize-crops to fill the frame while biasing the crop around the faces returned by Immich. A landscape shot with room around the subject usually crops cleanly to portrait this way.
 
-See the following example from [crop_compare.ipynb](./notebooks/crop_compare.ipynb) that shows how the head bounding boxes affect the final crop.
+The important guardrail is `heads_fit_in_crop`: before the picker accepts a downloaded candidate, it checks the exact crop window against each face box extended upward to cover the head and padded by `HEAD_SAFETY_MARGIN`. If the crop would cut into any visible padded head area, the photo is rejected and another candidate is tried. That keeps the aggressive landscape-to-portrait crop from shaving off heads in group photos or edge-framed shots.
+
+See the following examples from [crop_compare.ipynb](./notebooks/crop_compare.ipynb) that show how the head bounding boxes affect the final crop and which candidates would be accepted or rejected.
 
 <p align="center">
-  <img src="photos/crop_compare_portrait.png" alt="Crop comparison showing original photos with face boxes, naive centre crops, and face-aware crops for a portrait frame target" width="760">
+  <img src="photos/crop_compare_portrait.png" alt="Crop comparison showing original photos with face boxes, naive centre crops, and accepted face-aware crops for a portrait frame target" width="760">
 </p>
+
 
 ### Dithering
 

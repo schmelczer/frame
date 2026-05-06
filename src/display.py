@@ -12,7 +12,12 @@ sys.path.append(str(Path(__file__).parent / "lib"))
 from crop import face_aware_crop
 from env import load_env, require
 from homeassistant import HomeAssistantClient
-from immich import ImmichClient, get_random_photo_from_album, get_random_photo_of_people
+from immich import (
+    ImmichClient,
+    get_random_photo_from_album,
+    get_random_photo_of_people,
+    target_size_for_orientation,
+)
 from overlay import format_age, format_location
 
 # waveshare_epd is imported lazily only when a render will actually happen.
@@ -97,9 +102,11 @@ def main() -> None:
         try:
             epd.init()
             img = Image.open(image_path).convert("RGB")
-            faces = client.get_asset_faces(asset["id"])
+            faces = asset.get("_faces")
+            if faces is None:
+                faces = client.get_asset_faces(asset["id"])
             print(f"Faces: {len(faces)}")
-            target_w, target_h = (480, 800) if args.orientation in (90, 270) else (800, 480)
+            target_w, target_h = target_size_for_orientation(args.orientation)
             img = face_aware_crop(img, target_w, target_h, faces)
             if args.orientation:
                 img = img.rotate(args.orientation, expand=True)

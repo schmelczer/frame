@@ -8,16 +8,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.request import Request
 
+from crop import heads_fit_in_crop
 from net import urlopen_with_retry
+from PIL import Image
 
 HISTORY_FILE = Path(__file__).parent.parent / "photo_history.json"
 CACHE_DIR = Path(tempfile.gettempdir()) / "frame_cache"
 
 # Soft preference for picking photos whose orientation matches the frame.
 # Mismatched-orientation photos still appear, just less often, since
-# face_aware_crop handles them via the rule-of-thirds composition.
+# face_aware_crop can often compose them without losing heads.
 ORIENTATION_MATCH_WEIGHT = 0.8
 ORIENTATION_DIFFER_WEIGHT = 0.2
+FRAME_LANDSCAPE = (800, 480)
+FRAME_PORTRAIT = (480, 800)
 
 _ROTATED_EXIF_ORIENTATIONS = {5, 6, 7, 8, "5", "6", "7", "8"}
 
@@ -184,6 +188,11 @@ def _bias_by_orientation(candidates: list[dict], frame_portrait: bool) -> list[d
     return pool
 
 
+def target_size_for_orientation(orientation: int) -> tuple[int, int]:
+    """Pre-rotation crop target for the Waveshare panel."""
+    return FRAME_PORTRAIT if orientation in (90, 270) else FRAME_LANDSCAPE
+
+
 def _on_this_day_candidates(assets: list[dict]) -> tuple[list[dict], bool]:
     """Photos taken on today's month-day in past years, with a ±3-day fallback.
 
@@ -241,6 +250,75 @@ def _pick_weighted_random(assets: list[dict]) -> dict:
     return random.choice(pool)
 
 
+def _asset_label(asset: dict) -> str:
+    return asset.get("originalFileName") or asset.get("originalPath") or asset.get("id", "unknown")
+
+
+def _download_if_heads_fit(
+    client: ImmichClient, asset: dict, target_w: int, target_h: int
+) -> tuple[Path, dict] | None:
+    faces = client.get_asset_faces(asset["id"])
+    with tempfile.NamedTemporaryFile(prefix="immich_photo_", suffix=".jpg", delete=False) as tmp:
+        dest = Path(tmp.name)
+
+    path = client.download_asset(asset["id"], dest)
+    try:
+        if faces:
+            with Image.open(path) as img:
+                fits = heads_fit_in_crop(img, target_w, target_h, faces)
+            if not fits:
+                path.unlink(missing_ok=True)
+                print(
+                    f"Rejected photo: {_asset_label(asset)} "
+                    f"(heads do not fit {target_w}x{target_h} crop)"
+                )
+                return None
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+    selected = dict(asset)
+    selected["_faces"] = faces
+    return path, selected
+
+
+def _pick_eligible_and_download(
+    client: ImmichClient,
+    candidates: list[dict],
+    target_w: int,
+    target_h: int,
+    rejected_ids: set[str],
+) -> tuple[Path, dict] | None:
+    remaining = [a for a in candidates if a.get("id") not in rejected_ids]
+    while remaining:
+        asset = _pick_weighted_random(remaining)
+        asset_id = asset["id"]
+        result = _download_if_heads_fit(client, asset, target_w, target_h)
+        if result is not None:
+            return result
+        rejected_ids.add(asset_id)
+        remaining = [a for a in remaining if a.get("id") not in rejected_ids]
+    return None
+
+
+def _pick_eligible_with_orientation_bias(
+    client: ImmichClient,
+    candidates: list[dict],
+    target_w: int,
+    target_h: int,
+    frame_portrait: bool,
+    rejected_ids: set[str],
+) -> tuple[Path, dict] | None:
+    biased_candidates = _bias_by_orientation(candidates, frame_portrait)
+    result = _pick_eligible_and_download(
+        client, biased_candidates, target_w, target_h, rejected_ids
+    )
+    if result is None and len(biased_candidates) < len(candidates):
+        print("No eligible photos in picked orientation pool, trying other orientations")
+        result = _pick_eligible_and_download(client, candidates, target_w, target_h, rejected_ids)
+    return result
+
+
 def _pick_and_download(
     client: ImmichClient, assets: list[dict], orientation: int, source_label: str
 ) -> tuple[Path, dict]:
@@ -249,18 +327,33 @@ def _pick_and_download(
 
     displayed, created_at = _load_history()
     candidates = [a for a in assets if a.get("id") not in displayed]
+    history_filtered = len(candidates) < len(assets)
     if not candidates:
         print(f"All {len(assets)} photos shown, picking from full list")
         candidates = assets
     else:
         print(f"Photos: {len(candidates)} new / {len(assets)} total")
 
-    candidates = _bias_by_orientation(candidates, orientation in (90, 270))
+    target_w, target_h = target_size_for_orientation(orientation)
+    rejected_ids: set[str] = set()
+    frame_portrait = orientation in (90, 270)
+    result = _pick_eligible_with_orientation_bias(
+        client, candidates, target_w, target_h, frame_portrait, rejected_ids
+    )
 
-    asset = _pick_weighted_random(candidates)
-    with tempfile.NamedTemporaryFile(prefix="immich_photo_", suffix=".jpg", delete=False) as tmp:
-        dest = Path(tmp.name)
-    path = client.download_asset(asset["id"], dest)
+    if result is None and history_filtered:
+        print("No eligible new photos after head-fit checks, picking from full list")
+        result = _pick_eligible_with_orientation_bias(
+            client, assets, target_w, target_h, frame_portrait, rejected_ids
+        )
+
+    if result is None:
+        raise ValueError(
+            f"No photos in {source_label} can be cropped to {target_w}x{target_h} "
+            "without cutting off heads"
+        )
+
+    path, asset = result
     displayed.add(asset["id"])
     _save_history(displayed, created_at)
     return path, asset
@@ -291,4 +384,4 @@ def get_random_photo_from_album(
     if not assets:
         raise ValueError(f"No photos in album: {album_name}")
 
-    return _pick_and_download(client, assets, orientation, f"album: {album_name}")
+    return _pick_and_download(client, assets, orientation, f"album {album_name!r}")
