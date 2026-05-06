@@ -35,7 +35,7 @@ The important guardrail is `heads_fit_in_crop`: before the picker accepts a down
 See the following examples from [crop_compare.ipynb](./notebooks/crop_compare.ipynb) that show how the head bounding boxes affect the final crop and which candidates would be accepted or rejected.
 
 <p align="center">
-  <img src="photos/crop_compare_portrait.png" alt="Crop comparison showing original photos with face boxes, naive centre crops, and accepted face-aware crops for a portrait frame target" width="760">
+  <img src="photos/crop_compare_portrait.png" alt="Crop comparison showing original photos with face boxes, naive centre crops, and face-aware crops for a portrait frame target, with one candidate rejected for cutting into a head" width="760">
 </p>
 
 

@@ -10,14 +10,38 @@
       "boundingBoxY2": 510
     }
   ],
-  "man_with_dog.jpg": [
+  "friends_in_field.jpg": [
     {
       "imageWidth": 1600,
       "imageHeight": 1067,
-      "boundingBoxX1": 1080,
-      "boundingBoxY1": 200,
-      "boundingBoxX2": 1320,
-      "boundingBoxY2": 450
+      "boundingBoxX1": 290,
+      "boundingBoxY1": 390,
+      "boundingBoxX2": 440,
+      "boundingBoxY2": 560
+    },
+    {
+      "imageWidth": 1600,
+      "imageHeight": 1067,
+      "boundingBoxX1": 520,
+      "boundingBoxY1": 370,
+      "boundingBoxX2": 680,
+      "boundingBoxY2": 530
+    },
+    {
+      "imageWidth": 1600,
+      "imageHeight": 1067,
+      "boundingBoxX1": 720,
+      "boundingBoxY1": 470,
+      "boundingBoxX2": 850,
+      "boundingBoxY2": 620
+    },
+    {
+      "imageWidth": 1600,
+      "imageHeight": 1067,
+      "boundingBoxX1": 920,
+      "boundingBoxY1": 420,
+      "boundingBoxX2": 1090,
+      "boundingBoxY2": 590
     }
   ],
   "mother_and_daughter.jpg": [
