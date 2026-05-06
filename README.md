@@ -3,7 +3,7 @@
 A small e-ink photo frame for our home. It pulls from a self-hosted [Immich](https://immich.app/) library, checks a self-hosted [Home Assistant](https://www.home-assistant.io/) to see if anyone is home, and shows a photo on the [PhotoPainter](https://www.waveshare.com/wiki/PhotoPainter) (Waveshare 7.3" 6-colour panel hooked up to a Raspberry Pi Zero 2W) for everyone to enjoy.
 
 <p align="center"><img src="photos/frame.jpg" alt="The frame showing a dithered landscape photo with a small overlay reading '2 years ago' and 'Palmeiras'" width="420"></p>
-<p align="center"><sub><em>The bottom corners show the photo's capture age and EXIF location. This one was taken in Palmeiras two years ago.</em></sub></p>
+<p align="center"><sub><em>The bottom corners show the photo's capture age and EXIF location.</em></sub></p>
 
 ## Why
 
@@ -11,7 +11,7 @@ Most digital frames either require you to pick and preprocess photos that you pu
 
 Coming home to a photo from earlier that day, or one from five years ago, hits differently when it's just sitting on the wall instead of buried in your phone.
 
-It was a fun afternoon project with Claude Code, a bit of experimenting with different dithering and post-processing, and then fine tuning the photo picking algorithm. Besides powering my frame, I share this repo as a reference and as inspiration for self-hosting, to show that the combination of these services can produce something that otherwise wouldn't have been possible to hack together so quickly.
+It was a fun afternoon project with Claude Code, a bit of experimenting with different dithering and post-processing, and then fine tuning the photo picking algorithm. Besides powering my frame, I share this repo as a reference and as inspiration for self-hosting, to show that the combination of these services can produce something that otherwise wouldn't have been possible to hack together so easily.
 
 ## How it works
 
@@ -30,7 +30,7 @@ The two choices that matter most are `face_aware_crop` and Atkinson dithering.
 
 The frame can only be in one orientation at a time, but I didn't want to limit it to only show portrait or landscape photos. So `face_aware_crop` resize-crops to fill the frame while biasing the crop around the faces returned by Immich. A landscape shot with room around the subject usually crops cleanly to portrait this way.
 
-The important guardrail is `heads_fit_in_crop`: before the picker accepts a downloaded candidate, it checks the exact crop window against each face box extended upward to cover the head and padded by `HEAD_SAFETY_MARGIN`. If the crop would cut into any visible padded head area, the photo is rejected and another candidate is tried. That keeps the aggressive landscape-to-portrait crop from shaving off heads in group photos or edge-framed shots.
+The important guardrail is `heads_fit_in_crop`: before the picker accepts a downloaded candidate, it checks the exact crop window against each face box extended upward to cover the head and padded by `HEAD_SAFETY_MARGIN`. If the crop would cut into any visible padded head area, the photo is rejected and another candidate is tried.
 
 See the following examples from [crop_compare.ipynb](./notebooks/crop_compare.ipynb) that show how the head bounding boxes affect the final crop and which candidates would be accepted or rejected.
 
@@ -79,11 +79,11 @@ python3 src/display.py -o 90  # portrait orientation
 python3 src/display.py --saturation 1.5 --contrast 1.1 --gamma 0.85  # change preprocessing settings
 ```
 
-`display.py` only runs on the Pi (it needs SPI). For off-device experiments see the notebooks below.
+`display.py` only runs on the Pi (it needs SPI). For off-device experiments see the Jupyter notebooks.
 
 ## Learnings
 
-The Pi Zero 2W is overkill for this. It chews through battery if you try to run untethered, and most of the time it's just sitting idle waiting for the next cron tick. If I were doing this again for a battery-powered build I'd probably reach for an ESP32 with deep sleep. Mine stays plugged in, so I haven't bothered.
+The Pi Zero 2W is overkill for this. It chews through battery if you try to run without cables, and most of the time it's just sitting idle waiting for the next cron tick. It could've been mitigated by connecting an RTC timer to an interrupt pin and using deep sleep in-between, however, the waveshare board didn't have this soldered already and I couldn't be bothered to hack it. Realistically, if I were doing this again for a battery-powered build I'd probably reach for an ESP32 with deep sleep as there would be plenty of time to do the image-processing and dithering in the 15 minute idle period so performance wouldn't be a bottleneck.
 
 A few small reliability quirks worth knowing: the Pi Zero 2W's wifi drops if power-save kicks in, so a separate cron job runs `wifi-check.sh` every 5 minutes to reconnect. Swap is masked and journald set to volatile because SD card writes are the only thing likely to slowly kill this build. The render holds an `flock` so a slow refresh never overlaps the next 15-minute tick.
 
