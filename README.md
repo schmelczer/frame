@@ -19,7 +19,7 @@ This was a fun afternoon project with Claude Code, followed by a bit of experime
 
 1. Exits if the time is between midnight and 7 am.
 2. Asks Home Assistant whether anyone in `HA_PRESENCE` is home. If nobody is, it exits to save power and to spare the e-ink panel unnecessary refreshes.
-3. Picks a random photo from Immich. The pool is weighted: ~30% "on this day" memories (10% if only the ±3-day fallback fires), ~18% favourites, ~36% from the last 30 days, and ~36% everything else. A 7-day rolling history prevents repeats, and photos matching the frame's orientation get 4x the weight of those that don't. Before accepting a candidate, the picker verifies that every detected head fits inside the crop with a small safety margin; candidates that fail are skipped. See [immich.py](./src/lib/immich.py).
+3. Picks a random photo from Immich. The pool is weighted: ~25% "on this day" memories, ~15% favourites, ~30% from the last 30 days, and ~30% everything else (if only the ±3-day fallback fires, the memories' share drops to 10% and the rest scale up accordingly). A 7-day rolling history prevents repeats, and photos matching the frame's orientation get 4x the weight of those that don't. Before accepting a candidate, the picker verifies that every detected head fits inside the crop with a small safety margin; candidates that fail are skipped. See [immich.py](./src/lib/immich.py).
 4. Crops around any detected faces, boosts contrast and saturation (both of which e-ink lacks), dithers the image down to the 6-colour palette, and pushes it to the panel. The capture age and EXIF location are painted into the bottom corners as white text with a black stroke, so dithering can't smear the edges.
 
 ## Image pipeline
